@@ -41,7 +41,8 @@ var SCHEMA = {
   Owners:        ['OwnerID', 'Name', 'Email', 'Mobile', 'OdooKey', 'Active', 'CreatedAt'],
   Suppliers:     ['SupplierID', 'Company', 'ContactPerson', 'Mobile', 'Email', 'TIN', 'Address', 'Trades', 'PinHash',
                   'Status', 'Docs', 'Remarks', 'CreatedAt', 'AccreditedAt'],
-  Projects:      ['ProjectID', 'OwnerID', 'Name', 'Branch', 'Address', 'StartDate', 'TargetOpening', 'Status', 'Notes', 'CreatedAt', 'Plans'],
+  Projects:      ['ProjectID', 'OwnerID', 'Name', 'Branch', 'Address', 'StartDate', 'TargetOpening', 'Status', 'Notes', 'CreatedAt', 'Plans',
+                  'MapLink', 'SiteContact', 'SiteMobile'],
   Packages:      ['PackageID', 'ProjectID', 'Trade', 'Scope', 'Status', 'AwardedSupplierID', 'AwardedQuoteID', 'ContractAmount',
                   'DPRequired', 'RetentionPct', 'WarrantyMonths', 'AwardedAt', 'TurnedOverAt', 'WarrantyEnd', 'CreatedAt',
                   'UpdateFreq', 'UpdateDay', 'UpdateDueDate', 'UpdateNote'],
@@ -355,7 +356,7 @@ function api_data(token) {
   var seeProj = {}; out.Packages.forEach(function (p) { seeProj[p.ProjectID] = 1; });
   out.Projects = all.Projects.filter(function (p) { return seeProj[p.ProjectID]; }).map(function (p) {
     return { ProjectID: p.ProjectID, Name: p.Name, Branch: p.Branch, Address: p.Address, StartDate: p.StartDate, Status: p.Status,
-             TargetOpening: p.TargetOpening, Plans: p.Plans || [] };
+             TargetOpening: p.TargetOpening, Plans: p.Plans || [], MapLink: p.MapLink, SiteContact: p.SiteContact, SiteMobile: p.SiteMobile };
   });
   byPkg = function (r) { return awarded[r.PackageID]; };
   ['Payments', 'PayRequests', 'Mobilization', 'Milestones', 'Updates', 'Concerns', 'ChangeOrders', 'Turnover']
@@ -480,7 +481,9 @@ function api_saveProject(token, d) {
   var me = auth_(token, ['admin', 'owner']);
   return withLock_(function () {
     var base = { Name: str_(d.Name, 200), Branch: str_(d.Branch, 200), Address: str_(d.Address, 500),
-                 StartDate: str_(d.StartDate, 10), TargetOpening: str_(d.TargetOpening, 10), Notes: str_(d.Notes, 2000) };
+                 StartDate: str_(d.StartDate, 10), TargetOpening: str_(d.TargetOpening, 10), Notes: str_(d.Notes, 2000),
+                 MapLink: /^https?:\/\//i.test(str_(d.MapLink, 500)) ? str_(d.MapLink, 500) : '', SiteContact: str_(d.SiteContact, 200),
+                 SiteMobile: str_(d.SiteMobile, 40) };
     if (!base.Name) throw new Error('Project name is required.');
     if (d.ProjectID) {
       needOwner_(me, d.ProjectID);
@@ -562,8 +565,10 @@ function api_inviteProject(token, projectId, d) {
       mail_(t.email, 'Invitation to quote: ' + (pr.Branch || pr.Name), box_('You are invited to quote',
         '<p>Hi ' + esc_(t.name || '') + ',</p><p>You are invited to submit a quotation for the following:</p>' +
         table_([['Project', pr.Name + (pr.Branch ? ' – ' + pr.Branch : '')], ['Location', pr.Address],
+                ['Site contact', [pr.SiteContact, pr.SiteMobile].filter(String).join(' – ')],
                 ['Package(s) to quote', newPk.map(function (p) { return p.Trade + (p.Scope ? ' – ' + p.Scope : ''); }).join('\n')],
                 ['Brief', d.brief], ['Quote deadline', d.deadline]]) +
+        (pr.MapLink ? '<p>📍 <a href="' + esc_(pr.MapLink) + '"><b>Open site location in Google Maps</b></a></p>' : '') +
         (files.length ? '<p><b>Plans & attachments:</b><br>' + files.map(function (f) {
           return '<a href="' + f.url + '">' + esc_(f.name) + '</a>'; }).join('<br>') + '</p>' : '') +
         (t.sup ? '<p>Log in to the supplier portal to view the details and submit your quotation.</p>'

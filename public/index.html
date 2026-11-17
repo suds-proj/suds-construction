@@ -399,7 +399,7 @@ function supplierHome(){
     const atts = []; list.forEach(i=>(i.Attachments||[]).forEach(f=>{ if(!atts.some(a=>a.id===f.id)) atts.push(f); }));
     const brief = list.find(i=>i.Brief); const dl = list.map(i=>i.Deadline).sort()[0];
     return `<div class="card"><div class="row"><h3 style="margin:0">${h(pr.Name)}${pr.Branch?' – '+h(pr.Branch):''}</h3><span class="spacer"></span><span class="small muted">Quote due ${fmtD(dl)}</span></div>
-      <div class="muted small">${h(pr.Address)}${pr.StartDate?' · construction start '+fmtD(pr.StartDate):''}</div>
+      <div class="muted small">${h(pr.Address)}${pr.StartDate?' · construction start '+fmtD(pr.StartDate):''}</div>${siteInfo(pr)}
       ${brief?`<p class="small"><b>Brief:</b> ${nl(brief.Brief)}</p>`:''}
       <h3 style="margin-top:12px">Plans & documents</h3>${media((pr.Plans||[]).concat(atts))||'<p class="small muted">No plans attached.</p>'}
       <h3 style="margin-top:14px">Package(s) to quote</h3>
@@ -574,9 +574,16 @@ function projectForm(id){
   openModal(id?'Edit project':'New construction project', `${ownersSel}
     <div class="f2"><div><label>Project name *</label><input type="text" id="pjName" value="${h(p.Name)}" placeholder="e.g. Suds Laundry new store"></div><div><label>Branch</label><input type="text" id="pjBranch" value="${h(p.Branch)}"></div></div>
     <label>Site address</label><input type="text" id="pjAddr" value="${h(p.Address)}">
+    <label>Google Maps location link</label>
+    <div class="row" style="flex-wrap:nowrap"><input type="url" id="pjMap" value="${h(p.MapLink)}" placeholder="https://maps.app.goo.gl/…">
+      <button class="btn sm sec nowrap" onclick="window.open('https://www.google.com/maps/search/'+encodeURIComponent($('pjAddr').value||''),'_blank')">Find on map</button></div>
+    <p class="small muted" style="margin:4px 0 0">In Google Maps, find the site → <b>Share</b> → <b>Copy link</b>, then paste it here.</p>
+    <div class="f2"><div><label>Site visit contact person</label><input type="text" id="pjContact" value="${h(p.SiteContact)}"></div>
+    <div><label>Contact mobile</label><input type="text" id="pjMobile" inputmode="tel" value="${h(p.SiteMobile)}"></div></div>
     <div class="f2"><div><label>Construction start (target)</label><input type="date" id="pjStart" value="${h(p.StartDate)}"></div><div><label>Target opening</label><input type="date" id="pjOpen" value="${h(p.TargetOpening)}"></div></div>
     <label>Notes</label><textarea id="pjNotes">${h(p.Notes)}</textarea>`,
-    ()=>act('Saving…',async()=>{ const r = await api('api_saveProject',S.token,{ProjectID:id,OwnerID:$('pjOwner')&&$('pjOwner').value,Name:$('pjName').value,Branch:$('pjBranch').value,Address:$('pjAddr').value,StartDate:$('pjStart').value,TargetOpening:$('pjOpen').value,Notes:$('pjNotes').value});
+    ()=>act('Saving…',async()=>{ const r = await api('api_saveProject',S.token,{ProjectID:id,OwnerID:$('pjOwner')&&$('pjOwner').value,Name:$('pjName').value,Branch:$('pjBranch').value,Address:$('pjAddr').value,StartDate:$('pjStart').value,TargetOpening:$('pjOpen').value,Notes:$('pjNotes').value,MapLink:$('pjMap').value.trim(),SiteContact:$('pjContact').value,SiteMobile:$('pjMobile').value});
+      if($('pjMap').value.trim() && !/^https?:\/\//i.test($('pjMap').value.trim())) toast('The map link must start with https:// – it was not saved.',true);
       if(!id) S.view={name:'project',id:r.ProjectID}; }));
 }
 
@@ -600,7 +607,8 @@ function projectView(id){
     <div class="row"><h1 style="margin:0">${h(pr.Name)}${pr.Branch?' – '+h(pr.Branch):''}</h1>${badge(pr.Status)}<span class="spacer"></span>
       <button class="btn sec" onclick="projectForm('${pr.ProjectID}')">Edit</button><button class="btn sec" onclick="packageForm('${pr.ProjectID}')">+ Add package</button>
       <button class="btn" onclick="inviteForm('${pr.ProjectID}')">✉ Invite supplier to quote</button></div>
-    <p class="muted small">${h(pr.Address)}${own} · Start ${fmtD(pr.StartDate)} · Target opening ${fmtD(pr.TargetOpening)}</p>
+    <p class="muted small">${h(pr.Address)}${own} · Start ${fmtD(pr.StartDate)} · Target opening ${fmtD(pr.TargetOpening)}</p>${siteInfo(pr)}
+    ${!pr.MapLink||!pr.SiteContact?`<div class="infobox">Add the <b>Google Maps location</b> and <b>site visit contact</b> (Edit) so they're included in supplier invitations.</div>`:''}
     <div class="kpis">
       <div class="kpi"><div class="l">Total contract</div><div class="v">${peso(s.contract)}</div></div>
       <div class="kpi"><div class="l">Paid</div><div class="v">${peso(s.paid)}</div></div>
@@ -686,6 +694,12 @@ function quotingSection(pk){
     <div style="margin-top:10px">${inv.length?`<div class="tw"><table><tr><th>Supplier</th><th>Invitation</th><th>Deadline</th><th class="num">Quote</th><th class="num">Duration</th><th>Quote status</th><th></th></tr>${rows}</table></div>`
       :`<div class="empty">No suppliers invited yet. Click <b>Invite suppliers to quote</b>.</div>`}</div>`;
 }
+function siteInfo(pr){
+  const parts = [];
+  if(pr.MapLink) parts.push(`<a href="${h(pr.MapLink)}" target="_blank" rel="noopener">📍 Open in Google Maps</a>`);
+  if(pr.SiteContact||pr.SiteMobile) parts.push(`Site contact: <b>${h(pr.SiteContact||'')}</b> ${pr.SiteMobile?`<a href="tel:${h(pr.SiteMobile)}">${h(pr.SiteMobile)}</a>`:''}`);
+  return parts.length ? `<p class="small">${parts.join(' · ')}</p>` : '';
+}
 function plansCard(pr){
   const plans = pr.Plans||[];
   return `<div class="card"><div class="row"><h3 style="margin:0">Plans & documents</h3><span class="muted small">${plans.length} file(s) · shared with invited suppliers</span><span class="spacer"></span>
@@ -724,7 +738,8 @@ function inviteForm(pid, prePkg){
       :`<p class="small muted" style="margin:0">No project plans uploaded yet. You can add files here, or close this and use <b>Upload plans</b>.</p>`}
     <label class="small" style="font-weight:400">Additional files for this invitation</label>${fileField('ivFiles','image/*,application/pdf,.dwg,.dxf,.zip',true)}
     <label>4. Brief / instructions</label><textarea id="ivBrief" placeholder="e.g. Please include materials and labor. Quote per item."></textarea>
-    <div class="f2"><div><label>Quote deadline *</label><input type="date" id="ivDl" value="${d.toISOString().slice(0,10)}"></div><div><label>Site visit (optional)</label><input type="text" id="ivVisit" placeholder="e.g. Nov 20, 10am – call Mark"></div></div>
+    <div class="f2"><div><label>Quote deadline *</label><input type="date" id="ivDl" value="${d.toISOString().slice(0,10)}"></div><div><label>Site visit schedule (optional)</label><input type="text" id="ivVisit" placeholder="e.g. Nov 20, 10am"></div></div>
+    ${pr.MapLink||pr.SiteContact?`<p class="small">Included in the email: ${pr.MapLink?'📍 map location':''}${pr.MapLink&&pr.SiteContact?' · ':''}${pr.SiteContact?'site contact '+h(pr.SiteContact)+' '+h(pr.SiteMobile||''):''}</p>`:`<div class="infobox">Tip: add the Google Maps link and site contact in the project (Edit) so suppliers get them too.</div>`}
     <p class="small muted">Each supplier gets an email with the packages, plans and a link. New suppliers register with that same email to see the invitation.</p>`,
     async()=>{
       const emails = [...document.querySelectorAll('#ivRows .ivRow')].map(r=>({email:r.querySelector('.ivEmail').value.trim(),name:r.querySelector('.ivName').value.trim()})).filter(e=>e.email);
