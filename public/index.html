@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Suds Construction Monitoring</title>
+<meta name="theme-color" content="#FF6B00">
+<link rel="icon" type="image/png" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<script>
+  /* ====== ONLY SETTING YOU NEED TO CHANGE ======
+     Paste your Apps Script Web app URL (ends with /exec) between the quotes. */
+  window.SUDS_API_URL = 'PASTE_APPS_SCRIPT_WEB_APP_URL_HERE';
+</script>
+<style>
+:root{
+  --orange:#FF6B00;--orange-deep:#D95600;--orange-soft:#FFF0E3;--orange-line:#FFD2AD;
+  --ink:#2B2B2B;--muted:#7A7A7A;--line:#ECECEC;--bg:#FAFAF8;--card:#fff;
+  --green:#1E9E5A;--green-soft:#E6F6ED;--amber:#C77700;--amber-soft:#FFF4DC;--red:#D93B3B;--red-soft:#FDECEC;
+  --blue:#2C6ECB;--blue-soft:#E8F0FB;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+button,input,select,textarea{font:inherit}
+a{color:var(--orange-deep)}
+.hidden{display:none!important}
+header{background:var(--orange);color:#fff;padding:12px 18px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:20}
+header .t{font-weight:700;font-size:17px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .who{font-size:13px;opacity:.95;text-align:right}
+header button{background:rgba(255,255,255,.18);color:#fff;border:0;border-radius:8px;padding:6px 10px;cursor:pointer}
+.banner{background:var(--amber-soft);color:var(--amber);padding:8px 18px;font-size:13px;display:flex;gap:10px;align-items:center}
+main{max-width:1180px;margin:0 auto;padding:18px}
+h1{font-size:22px;margin:4px 0 14px}h2{font-size:17px;margin:20px 0 10px}h3{font-size:15px;margin:0 0 6px}
+.muted{color:var(--muted)}.small{font-size:13px}.right{text-align:right}.nowrap{white-space:nowrap}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.grid{display:grid;gap:12px}.g2{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.kpi .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+.kpi .v{font-size:20px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
+.kpi.warn .v{color:var(--red)}
+.btn{background:var(--orange);color:#fff;border:0;border-radius:8px;padding:9px 14px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--orange-deep)}
+.btn.sec{background:#fff;color:var(--ink);border:1px solid var(--line)}.btn.sec:hover{background:#f4f4f2}
+.btn.green{background:var(--green)}.btn.red{background:var(--red)}.btn.sm{padding:5px 10px;font-size:13px;font-weight:600}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.spacer{flex:1}
+table{width:100%;border-collapse:collapse;background:#fff}
+th,td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:14px}
+th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;background:#FBFBF9}
+tr.click{cursor:pointer}tr.click:hover td{background:var(--orange-soft)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+.tw table{border:0}.tw tr:last-child td{border-bottom:0}
+.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;background:#EEE;color:#555;white-space:nowrap}
+.b-green{background:var(--green-soft);color:var(--green)}.b-amber{background:var(--amber-soft);color:var(--amber)}
+.b-red{background:var(--red-soft);color:var(--red)}.b-blue{background:var(--blue-soft);color:var(--blue)}.b-orange{background:var(--orange-soft);color:var(--orange-deep)}
+.bar{height:8px;background:#EEE;border-radius:9px;overflow:hidden;min-width:80px}
+.bar>i{display:block;height:100%;background:var(--orange)}
+.bar.green>i{background:var(--green)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:6px 0 16px;overflow-x:auto}
+.tab{padding:9px 14px;border:0;background:none;cursor:pointer;color:var(--muted);font-weight:600;border-bottom:2px solid transparent;white-space:nowrap}
+.tab.on{color:var(--orange-deep);border-color:var(--orange)}
+.tab .cnt{background:var(--red);color:#fff;border-radius:9px;padding:0 6px;font-size:11px;margin-left:4px}
+label{display:block;font-size:13px;font-weight:600;margin:10px 0 4px}
+input[type=text],input[type=email],input[type=number],input[type=date],input[type=password],input[type=url],select,textarea{
+  width:100%;padding:9px 10px;border:1px solid #D9D9D6;border-radius:8px;background:#fff}
+textarea{min-height:76px;resize:vertical}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--orange-line);border-color:var(--orange)}
+.chk{display:flex;gap:8px;align-items:flex-start;font-weight:400;font-size:14px;margin:6px 0}
+.chk input{margin-top:3px}
+.f2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+@media(max-width:640px){.f2{grid-template-columns:1fr}main{padding:12px}}
+.back{background:none;border:0;color:var(--orange-deep);cursor:pointer;padding:0;font-weight:600;margin-bottom:6px}
+.steps{display:flex;gap:0;margin:8px 0 16px;overflow-x:auto}
+.step{flex:1;min-width:90px;text-align:center;font-size:12px;color:var(--muted);position:relative;padding-top:18px}
+.step:before{content:"";position:absolute;top:6px;left:0;right:0;height:3px;background:#E5E5E2}
+.step:after{content:"";position:absolute;top:1px;left:calc(50% - 6px);width:12px;height:12px;border-radius:50%;background:#E5E5E2}
+.step.done{color:var(--ink)}.step.done:before,.step.done:after{background:var(--orange)}
+.step.cur{color:var(--orange-deep);font-weight:700}.step.cur:after{background:#fff;border:3px solid var(--orange);top:-1px;width:16px;height:16px;left:calc(50% - 8px)}
+.media{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.media a{display:block;width:96px;height:96px;border-radius:8px;overflow:hidden;background:#EEE;border:1px solid var(--line);position:relative;text-decoration:none}
+.media img{width:100%;height:100%;object-fit:cover}
+.media .doc{display:flex;align-items:center;justify-content:center;height:100%;font-size:11px;padding:6px;text-align:center;color:var(--ink);word-break:break-all}
+.media .vid:before{content:"▶";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--orange)}
+.feed .item{border-left:3px solid var(--orange-line);padding:4px 0 4px 14px;margin-bottom:18px}
+.pill{display:inline-flex;gap:4px;align-items:center;background:var(--orange-soft);color:var(--orange-deep);padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600}
+.empty{padding:26px;text-align:center;color:var(--muted);background:#fff;border:1px dashed #DDD;border-radius:12px}
+.warnbox{background:var(--red-soft);color:var(--red);padding:9px 12px;border-radius:8px;font-size:13px;margin:8px 0}
+.infobox{background:var(--blue-soft);color:var(--blue);padding:9px 12px;border-radius:8px;font-size:13px;margin:8px 0}
+.okbox{background:var(--green-soft);color:var(--green);padding:9px 12px;border-radius:8px;font-size:13px;margin:8px 0}
+.login{max-width:420px;margin:30px auto}
+.lines input{padding:6px 7px}
+.lines td{padding:5px 4px}
+/* modal */
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:flex-start;justify-content:center;z-index:50;overflow-y:auto;padding:30px 12px}
+#modal .box{background:#fff;border-radius:14px;width:100%;max-width:640px;box-shadow:0 10px 40px rgba(0,0,0,.2)}
+#modal .box.wide{max-width:900px}
+#modal .hd{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;font-weight:700;font-size:16px}
+#modal .bd{padding:6px 18px 16px}
+#modal .ft{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+#modal .x{margin-left:auto;background:none;border:0;font-size:22px;cursor:pointer;color:var(--muted)}
+#busy{position:fixed;inset:0;background:rgba(255,255,255,.7);z-index:60;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;font-weight:600}
+.spin{width:34px;height:34px;border:4px solid var(--orange-line);border-top-color:var(--orange);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#2B2B2B;color:#fff;padding:10px 16px;border-radius:10px;z-index:70;max-width:90%;font-size:14px}
+#toast.err{background:var(--red)}
+.filelist{font-size:13px;color:var(--muted);margin-top:4px}
+.copy{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#F4F4F2;padding:3px 6px;border-radius:5px;word-break:break-all}
+</style>
+</head>
+<body>
+<header>
+  <div class="t" id="hdTitle">Suds Construction Monitoring</div>
+  <div class="who" id="hdWho"></div>
+  <button id="hdOut" class="hidden" onclick="logout()">Log out</button>
+</header>
+<div id="asBanner" class="banner hidden"></div>
+<main id="app"><div class="empty">Loading…</div></main>
+<div id="modal" class="hidden"></div>
+<div id="busy" class="hidden"><div class="spin"></div><div id="busyMsg">Please wait…</div></div>
+<div id="toast" class="hidden"></div>
+
+<script>
+/* ═════════════════ Basics ═════════════════ */
+const S = { token:null, me:null, d:null, view:{name:'home'}, tab:{}, adminToken:null };
+const $ = id => document.getElementById(id);
+const h = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nl = s => h(s).replace(/\n/g,'<br>');
+const num = v => { const n = Number(String(v==null?'':v).replace(/[^0-9.\-]/g,'')); return isFinite(n)?n:0; };
+const peso = n => '₱' + num(n).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
+const pct = n => Math.round(num(n)) + '%';
+const truthy = v => v===true || String(v).toUpperCase()==='TRUE';
+const fmtD = s => { if(!s) return '—'; const d=new Date(String(s).slice(0,10)+'T00:00:00'); return isNaN(d)?h(s):d.toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'}); };
+const daysBetween = (a,b) => Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/864e5);
+const store = { get(k){try{return localStorage.getItem(k)}catch(e){return null}}, set(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}} };
+
+function api(fn, ...args){
+  const url = window.SUDS_API_URL;
+  if(!/^https:\/\/script\.google\.com\/.+\/exec/.test(url||'')) return Promise.reject(new Error('App link not set up yet (SUDS_API_URL in index.html).'));
+  return fetch(url,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({fn,args})})
+    .then(r=>{ if(!r.ok) throw new Error('Network error ('+r.status+')'); return r.json(); })
+    .then(r=>{ if(!r.ok){ if(r.error==='SESSION_EXPIRED'){ sessionExpired(); } throw new Error(r.error==='SESSION_EXPIRED'?'Your session expired. Please log in again.':r.error); } return r.data; });
+}
+function busy(on,msg){ $('busy').classList.toggle('hidden',!on); $('busyMsg').textContent=msg||'Please wait…'; }
+let toastT; function toast(msg,err){ const t=$('toast'); t.textContent=msg; t.className=err?'err':''; clearTimeout(toastT); toastT=setTimeout(()=>t.className='hidden',err?6000:3000); }
+async function run(msg, fn){ busy(true,msg); try{ const r = await fn(); return r; } catch(e){ toast(e.message||String(e),true); if(e&&typeof e==='object') e._shown=true; throw e; } finally{ busy(false); } }
+
+/* ═════════════════ Start / login ═════════════════ */
+async function start(){
+  const qs = new URLSearchParams(location.search);
+  const key = qs.get('k');
+  if(key){
+    try{ const r = await run('Opening your projects…',()=>api('api_ownerLogin',key)); return setSession(r); }
+    catch(e){ $('app').innerHTML = `<div class="login card"><h1>Access not set up</h1><p class="muted">${h(e.message)}</p></div>`; return; }
+  }
+  const t = store.get('cm_token');
+  if(t){ S.token=t; try{ await reload(); return; }catch(e){} }
+  renderLogin();
+}
+function setSession(r, keep){
+  S.token=r.token; S.me=r.me;
+  if(keep!==false && r.me.role!=='owner') store.set('cm_token',r.token);
+  S.view={name:'home'}; return reload();
+}
+function sessionExpired(){ store.set('cm_token',null); S.token=null; setTimeout(()=>{ if(!new URLSearchParams(location.search).get('k')) renderLogin(); else location.reload(); },50); }
+function logout(){ store.set('cm_token',null); S.token=S.me=S.d=null; S.adminToken=null; $('asBanner').classList.add('hidden'); if(new URLSearchParams(location.search).get('k')) location.reload(); else renderLogin(); }
+async function reload(){
+  const d = await api('api_data', S.token);
+  S.d=d; S.me=d.me; render();
+}
+async function act(msg, fn){ // run an action then refresh
+  await run(msg, async()=>{ await fn(); const d=await api('api_data',S.token); S.d=d; S.me=d.me; });
+  closeModal(); render();
+}
+
+function renderLogin(){
+  $('hdWho').textContent=''; $('hdOut').classList.add('hidden');
+  const tab = S.tab.login || 'login';
+  const trades = ['General Contractor','CCTV','WiFi / Network','Fire Sprinkler','Smoke Detector / Fire Alarm','LPG Line','Aircon','Glass & Aluminum','Signage','Others'];
+  $('app').innerHTML = `<div class="login">
+    <div class="tabs">
+      <button class="tab ${tab==='login'?'on':''}" onclick="S.tab.login='login';renderLogin()">Supplier log in</button>
+      <button class="tab ${tab==='reg'?'on':''}" onclick="S.tab.login='reg';renderLogin()">Register as supplier</button>
+      <button class="tab ${tab==='admin'?'on':''}" onclick="S.tab.login='admin';renderLogin()">Admin</button>
+    </div>
+    <div class="card">${
+      tab==='login' ? `<h1>Supplier log in</h1>
+        <label>Email</label><input type="email" id="lgEmail" autocomplete="username">
+        <label>PIN</label><input type="password" id="lgPin" inputmode="numeric" autocomplete="current-password" onkeydown="if(event.key==='Enter')supLogin()">
+        <div class="row" style="margin-top:14px"><button class="btn" onclick="supLogin()">Log in</button><span class="spacer"></span>
+        <a href="#" onclick="forgotPin();return false" class="small">Forgot PIN?</a></div>`
+      : tab==='reg' ? `<h1>Register as supplier</h1><p class="muted small">After registering, SPFC will review and accredit your company. You'll receive your PIN by email.</p>
+        <label>Company name *</label><input type="text" id="rgCompany">
+        <div class="f2"><div><label>Contact person *</label><input type="text" id="rgContact"></div>
+        <div><label>Mobile *</label><input type="text" id="rgMobile" inputmode="tel"></div></div>
+        <div class="f2"><div><label>Email *</label><input type="email" id="rgEmail"></div>
+        <div><label>TIN</label><input type="text" id="rgTin"></div></div>
+        <label>Business address</label><input type="text" id="rgAddr">
+        <label>Trade(s) you can supply *</label>
+        ${trades.map(t=>`<label class="chk"><input type="checkbox" name="rgTrade" value="${h(t)}"> ${h(t)}</label>`).join('')}
+        <div style="margin-top:14px"><button class="btn" onclick="supRegister()">Register</button></div>`
+      : `<h1>Admin log in</h1><label>Admin PIN</label><input type="password" id="adPin" onkeydown="if(event.key==='Enter')adminLogin()">
+        <div style="margin-top:14px"><button class="btn" onclick="adminLogin()">Log in</button></div>`
+    }</div></div>`;
+}
+async function supLogin(){ const r = await run('Logging in…',()=>api('api_supplierLogin',$('lgEmail').value,$('lgPin').value)); await setSession(r); }
+async function adminLogin(){ const r = await run('Logging in…',()=>api('api_adminLogin',$('adPin').value)); await setSession(r); }
+async function forgotPin(){
+  const e = ($('lgEmail').value||'').trim(); if(!e) return toast('Type your email first, then click Forgot PIN.',true);
+  await run('Sending…',()=>api('api_supplierResetPin',e)); toast('If that email is registered, a new PIN was sent.');
+}
+async function supRegister(){
+  const d = { Company:$('rgCompany').value, ContactPerson:$('rgContact').value, Mobile:$('rgMobile').value, Email:$('rgEmail').value,
+    TIN:$('rgTin').value, Address:$('rgAddr').value, Trades:[...document.querySelectorAll('input[name=rgTrade]:checked')].map(x=>x.value) };
+  if(!d.ContactPerson||!d.Mobile) return toast('Please fill in the contact person and mobile.',true);
+  if(!d.Trades.length) return toast('Please tick at least one trade.',true);
+  const r = await run('Registering…',()=>api('api_supplierRegister',d));
+  await setSession(r);
+  openModal('Registration received', `<p>Your PIN is <b style="font-size:22px;letter-spacing:3px">${h(r.pin)}</b></p><p class="muted">We also emailed it to you. Next, upload your business documents so SPFC can accredit you.</p>`, null, 'OK');
+}
+
+/* ═════════════════ Lookups & computations ═════════════════ */
+const D = () => S.d;
+const byId = (arr,key,id) => (D()[arr]||[]).find(x=>String(x[key])===String(id));
+const proj = id => byId('Projects','ProjectID',id) || {};
+const pkgOf = id => byId('Packages','PackageID',id) || {};
+const sup = id => byId('Suppliers','SupplierID',id) || (S.me.role==='supplier'&&String(id)===String(S.me.id)?D().Profile:null) || {Company:'(supplier)'};
+const owner = id => byId('Owners','OwnerID',id) || {};
+const where = (arr,f) => (D()[arr]||[]).filter(f);
+const isOwnerSide = () => S.me.role==='owner' || S.me.role==='admin';
+
+function pkgStats(pk){
+  const id = pk.PackageID, today = D().today;
+  const cos = where('ChangeOrders',c=>c.PackageID===id);
+  const coApproved = cos.filter(c=>c.Status==='Approved').reduce((a,c)=>a+num(c.Amount),0);
+  const contract = num(pk.ContractAmount) + coApproved;
+  const pays = where('Payments',p=>p.PackageID===id);
+  const paid = pays.reduce((a,p)=>a+num(p.Amount),0);
+  const ms = where('Milestones',m=>m.PackageID===id).sort((a,b)=>a.Seq-b.Seq);
+  const wTot = ms.reduce((a,m)=>a+num(m.Weight),0);
+  const msPct = wTot ? ms.filter(m=>truthy(m.Done)).reduce((a,m)=>a+num(m.Weight),0)/wTot*100 : null;
+  const ups = where('Updates',u=>u.PackageID===id).sort((a,b)=>String(b.SubmittedAt).localeCompare(String(a.SubmittedAt)));
+  const reported = ups[0] ? num(ups[0].Percent) : 0;
+  let progress = pk.Status==='Turned Over' ? 100 : (msPct!=null && ms.some(m=>truthy(m.Done)) ? msPct : reported);
+  const mob = byId('Mobilization','PackageID',id);
+  const active = ['Mobilized','Ongoing'].includes(pk.Status);
+  const lastUp = ups[0] ? String(ups[0].SubmittedAt).slice(0,10) : '';
+  const noUpdate = active && mob && mob.MobDate<=today && daysBetween(lastUp||mob.MobDate, today) > 7;
+  const delayed = mob && mob.TargetEnd && today>mob.TargetEnd && !['For Turnover','Turned Over'].includes(pk.Status);
+  const pctPaid = contract ? paid/contract*100 : 0;
+  return { contract, coApproved, paid, balance: contract-paid, pctPaid, progress, reported, msPct, ms, ups, mob, lastUp, noUpdate, delayed,
+    overpaid: contract && pk.AwardedSupplierID && pctPaid > progress + 10 && pk.Status!=='Turned Over',
+    openConcerns: where('Concerns',c=>c.PackageID===id && c.Status!=='Resolved').length,
+    pendingReq: where('PayRequests',r=>r.PackageID===id && r.Status==='Requested').length,
+    pendingCO: cos.filter(c=>c.Status==='Pending').length,
+    unconfirmed: pays.filter(p=>p.Status==='Sent').length,
+    retention: contract*num(pk.RetentionPct)/100 };
+}
+function projStats(pr){
+  const pks = where('Packages',p=>p.ProjectID===pr.ProjectID);
+  let contract=0, paid=0, wprog=0, flags=0, concerns=0, reqs=0, awarded=0;
+  pks.forEach(p=>{ if(!p.AwardedSupplierID) return; awarded++; const s=pkgStats(p); contract+=s.contract; paid+=s.paid; wprog+=s.progress*s.contract;
+    if(s.delayed||s.noUpdate) flags++; concerns+=s.openConcerns; reqs+=s.pendingReq; });
+  return { pks, contract, paid, balance:contract-paid, pctPaid: contract?paid/contract*100:0, progress: contract?wprog/contract:0, flags, concerns, reqs, awarded };
+}
+const STATUS_COLORS = { 'Turned Over':'b-green','Received':'b-green','Accredited':'b-green','Accepted':'b-green','Awarded':'b-green','Approved':'b-green','Resolved':'b-green','Paid':'b-green','Completed':'b-green','Quoted':'b-blue',
+  'Ongoing':'b-orange','Mobilized':'b-orange','For Turnover':'b-blue','Final':'b-blue','Submitted':'b-blue','Responded':'b-blue','Viewed':'b-blue',
+  'Negotiating':'b-amber','Pending':'b-amber','Requested':'b-amber','Sent':'b-amber','Invited':'b-amber','Quoting':'b-amber','Open':'b-red','Planning':'b-amber',
+  'Rejected':'b-red','Declined':'b-red','Not Awarded':'b-red','Expired':'b-red','Suspended':'b-red','Award Cancelled':'b-red' };
+const badge = s => `<span class="badge ${STATUS_COLORS[s]||''}">${h(s||'—')}</span>`;
+const bar = (p,cls) => `<div class="bar ${cls||''}"><i style="width:${Math.max(0,Math.min(100,num(p)))}%"></i></div>`;
+function media(files, link){
+  const list = (files||[]).map(f=>{
+    if(/^image\//.test(f.mime||'')) return `<a href="${h(f.url)}" target="_blank" rel="noopener" title="${h(f.name)}"><img loading="lazy" src="https://drive.google.com/thumbnail?id=${encodeURIComponent(f.id)}&sz=w300" alt=""></a>`;
+    if(/^video\//.test(f.mime||'')) return `<a class="vid" href="${h(f.url)}" target="_blank" rel="noopener" title="${h(f.name)}"></a>`;
+    return `<a href="${h(f.url)}" target="_blank" rel="noopener" title="${h(f.name)}"><div class="doc">📄 ${h(f.name)}</div></a>`;
+  });
+  if(link) list.push(`<a class="vid" href="${h(link)}" target="_blank" rel="noopener" title="Video link"></a>`);
+  return list.length ? `<div class="media">${list.join('')}</div>` : '';
+}
+
+/* ═════════════════ Render router ═════════════════ */
+function go(name, id){ S.view={name,id}; render(); window.scrollTo(0,0); }
+function render(){
+  if(!S.me) return renderLogin();
+  $('hdOut').classList.remove('hidden');
+  $('hdWho').innerHTML = `${h(S.me.name)}<br><span style="opacity:.8">${S.me.role==='admin'?'Admin':S.me.role==='owner'?'Owner':'Supplier'}</span>`;
+  if(S.me.role==='owner' && new URLSearchParams(location.search).get('k')) $('hdOut').classList.add('hidden');
+  const v = S.view, r = S.me.role;
+  let html;
+  if(v.name==='project') html = projectView(v.id);
+  else if(v.name==='package') html = packageView(v.id);
+  else if(r==='admin') html = adminHome();
+  else if(r==='owner') html = ownerHome();
+  else html = supplierHome();
+  $('app').innerHTML = html;
+}
+
+/* ═════════════════ Supplier home ═════════════════ */
+function supplierHome(){
+  const P = D().Profile || {};
+  const docs = P.Docs||[];
+  let out = `<h1>${h(P.Company)}</h1>`;
+  if(P.Status!=='Accredited'){
+    out += `<div class="card"><div class="row"><h3>Accreditation status</h3>${badge(P.Status)}</div>
+      ${P.Status==='Pending'?'<p class="muted">SPFC is reviewing your registration. Upload your documents below to speed it up.</p>':''}
+      ${P.Remarks?`<p>Remarks: ${nl(P.Remarks)}</p>`:''}</div>`;
+  }
+  out += `<div class="card"><div class="row"><h3>Company documents</h3><span class="spacer"></span>
+    <button class="btn sm sec" onclick="uploadSupplierDocs()">Upload documents</button><button class="btn sm sec" onclick="editProfile()">Edit profile</button></div>
+    <p class="muted small">Business permit, DTI/SEC, BIR 2303, and other permits.</p>${media(docs)||'<p class="muted small">No documents yet.</p>'}</div>`;
+  if(P.Status!=='Accredited') return out;
+
+  const inv = where('Invitations',i=>['Invited','Viewed'].includes(i.Status)).sort((a,b)=>String(a.Deadline).localeCompare(b.Deadline));
+  out += `<h2>Invitations to quote</h2>`;
+  out += inv.length ? `<div class="grid g2">${inv.map(i=>{ const pk=pkgOf(i.PackageID), pr=proj(i.ProjectID), late=i.Deadline<D().today;
+    return `<div class="card"><div class="row"><span class="pill">${h(pk.Trade)}</span>${badge(i.Status)}<span class="spacer"></span><span class="small ${late?'':'muted'}" style="${late?'color:var(--red)':''}">Due ${fmtD(i.Deadline)}</span></div>
+      <h3 style="margin-top:8px">${h(pr.Name)}${pr.Branch?' – '+h(pr.Branch):''}</h3><div class="muted small">${h(pr.Address)}</div>
+      ${pk.Scope?`<p class="small"><b>Scope:</b> ${nl(pk.Scope)}</p>`:''}${i.Brief?`<p class="small"><b>Brief:</b> ${nl(i.Brief)}</p>`:''}${media(i.Attachments)}
+      <div class="row" style="margin-top:10px">${late?'<span class="small" style="color:var(--red)">Deadline passed</span>':`<button class="btn" onclick="quoteForm('${i.InviteID}')">Submit quote</button>`}
+      <button class="btn sec" onclick="declineInvite('${i.InviteID}')">Decline</button></div></div>`; }).join('')}</div>` : `<div class="empty">No open invitations right now.</div>`;
+
+  const quoted = where('Invitations',i=>i.Status==='Quoted'||i.Status==='Closed'||(i.Status!=='Declined'&&where('Quotes',q=>q.InviteID===i.InviteID).length));
+  out += `<h2>My quotations</h2>`;
+  out += quoted.length ? `<div class="tw"><table><tr><th>Project</th><th>Package</th><th>Rev</th><th class="num">Total</th><th>Status</th><th>Owner remarks</th><th></th></tr>
+    ${quoted.map(i=>{ const q=latestQuote(i.InviteID); if(!q) return ''; const pk=pkgOf(i.PackageID), pr=proj(i.ProjectID);
+      const canRevise = !truthy(q.IsFinal) && ['Submitted','Negotiating'].includes(q.Status) && !pk.AwardedSupplierID;
+      return `<tr><td>${h(pr.Branch||pr.Name)}</td><td>${h(pk.Trade)}</td><td>${q.Rev}${truthy(q.IsFinal)?' <span class="badge b-blue">Final</span>':''}</td>
+        <td class="num">${peso(q.Total)}</td><td>${badge(q.Status)}</td>
+        <td class="small">${q.CounterAmount?`Counter: <b>${peso(q.CounterAmount)}</b><br>`:''}${nl(q.OwnerRemarks)}</td>
+        <td class="nowrap"><button class="btn sm sec" onclick="viewQuote('${q.QuoteID}')">View</button>
+        ${canRevise?`<button class="btn sm" onclick="quoteForm('${i.InviteID}')">Revise</button>`:''}</td></tr>`; }).join('')}</table></div>` : `<div class="empty">No quotations yet.</div>`;
+
+  const mine = where('Packages',p=>String(p.AwardedSupplierID)===String(S.me.id));
+  out += `<h2>My awarded projects</h2>`;
+  out += mine.length ? `<div class="grid g2">${mine.map(pk=>{ const s=pkgStats(pk), pr=proj(pk.ProjectID);
+    const todo = [];
+    if(truthy(pk.DPRequired) && !where('Payments',p=>p.PackageID===pk.PackageID&&p.Type==='Downpayment').length) todo.push('Waiting for downpayment');
+    else if(!s.mob && pk.Status==='Awarded') todo.push('Submit mobilization details');
+    if(s.unconfirmed) todo.push(s.unconfirmed+' payment(s) to confirm');
+    if(s.noUpdate) todo.push('Weekly update overdue');
+    if(s.openConcerns) todo.push(s.openConcerns+' open concern(s)');
+    return `<div class="card click" style="cursor:pointer" onclick="go('package','${pk.PackageID}')"><div class="row"><span class="pill">${h(pk.Trade)}</span>${badge(pk.Status)}</div>
+      <h3 style="margin-top:8px">${h(pr.Name)}${pr.Branch?' – '+h(pr.Branch):''}</h3>
+      <div class="row small" style="margin:8px 0"><span>Progress ${pct(s.progress)}</span><span class="spacer"></span><span>Paid ${peso(s.paid)} of ${peso(s.contract)}</span></div>${bar(s.progress)}
+      ${todo.length?`<div class="warnbox">${todo.map(h).join(' · ')}</div>`:''}</div>`; }).join('')}</div>` : `<div class="empty">No awarded projects yet.</div>`;
+  return out;
+}
+function latestQuote(inviteId){ return where('Quotes',q=>q.InviteID===inviteId).sort((a,b)=>b.Rev-a.Rev)[0]; }
+
+function editProfile(){
+  const P = D().Profile, tr = D().trades;
+  openModal('Edit company profile', `<label>Company name</label><input type="text" id="pfCompany" value="${h(P.Company)}">
+    <div class="f2"><div><label>Contact person</label><input type="text" id="pfContact" value="${h(P.ContactPerson)}"></div><div><label>Mobile</label><input type="text" id="pfMobile" value="${h(P.Mobile)}"></div></div>
+    <div class="f2"><div><label>TIN</label><input type="text" id="pfTin" value="${h(P.TIN)}"></div><div><label>Address</label><input type="text" id="pfAddr" value="${h(P.Address)}"></div></div>
+    <label>Trades</label>${tr.map(t=>`<label class="chk"><input type="checkbox" name="pfTrade" value="${h(t)}" ${(P.Trades||[]).includes(t)?'checked':''}> ${h(t)}</label>`).join('')}`,
+    ()=>act('Saving…',()=>api('api_saveSupplierProfile',S.token,{Company:$('pfCompany').value,ContactPerson:$('pfContact').value,Mobile:$('pfMobile').value,TIN:$('pfTin').value,Address:$('pfAddr').value,
+      Trades:[...document.querySelectorAll('input[name=pfTrade]:checked')].map(x=>x.value)})));
+}
+function uploadSupplierDocs(){
+  openModal('Upload company documents', `<p class="muted small">PDF or photos. You can upload several files at once.</p>${fileField('sdFiles','image/*,application/pdf',true)}`,
+    async()=>{ const files = await uploadField('sdFiles',{type:'supplier'}); if(!files.length) return toast('Choose a file first.',true);
+      await act('Saving…',()=>api('api_saveSupplierProfile',S.token,{Docs:(D().Profile.Docs||[]).concat(files)})); });
+}
+async function declineInvite(id){
+  openModal('Decline invitation', `<label>Reason (optional)</label><textarea id="dcReason" placeholder="e.g. fully booked, out of area"></textarea>`,
+    ()=>act('Sending…',()=>api('api_declineInvite',S.token,id,$('dcReason').value)), 'Decline', 'red');
+}
+function quoteForm(inviteId){
+  const inv = byId('Invitations','InviteID',inviteId), pk = pkgOf(inv.PackageID), prev = latestQuote(inviteId);
+  if(inv.Status==='Invited') api('api_inviteViewed',S.token,inviteId).catch(()=>{});
+  const lines = prev ? prev.Lines : [{desc:'',qty:1,unit:'lot',price:''}];
+  openModal(`${prev?'Revise':'Submit'} quotation – ${h(pk.Trade)}`, `
+    ${prev&&prev.Status==='Negotiating'?`<div class="infobox"><b>Owner's request:</b> ${prev.CounterAmount?'counter-offer '+peso(prev.CounterAmount)+'. ':''}${nl(prev.OwnerRemarks)}</div>`:''}
+    <label>Line items</label>
+    <div class="tw"><table class="lines" id="qLines"><tr><th>Description</th><th style="width:70px">Qty</th><th style="width:70px">Unit</th><th style="width:110px">Unit price</th><th class="num" style="width:110px">Amount</th><th></th></tr>
+    ${lines.map(lineRow).join('')}</table></div>
+    <div class="row" style="margin-top:8px"><button class="btn sm sec" onclick="addLine()">+ Add line</button><span class="spacer"></span><b>Total: <span id="qTotal">₱0.00</span></b></div>
+    <div class="f2"><div><label>How many days to finish? *</label><input type="number" id="qDays" min="1" value="${h(prev?prev.DurationDays:'')}"></div>
+    <div><label>Warranty (months)</label><input type="number" id="qWarr" min="0" value="${h(prev?prev.WarrantyMonths:'')}"></div></div>
+    <label>Payment terms</label><input type="text" id="qTerms" placeholder="e.g. 30% DP, 40% progress, 30% upon turnover" value="${h(prev?prev.PaymentTerms:'')}">
+    <label>Notes / inclusions / exclusions</label><textarea id="qNotes">${h(prev?prev.Notes:'')}</textarea>
+    <label>Attach your formal quotation (PDF, optional)</label>${fileField('qFiles','application/pdf,image/*',true)}
+    ${prev&&prev.Attachments&&prev.Attachments.length?`<div class="small muted">Previous attachments are kept.</div>`:''}
+    <label class="chk" style="margin-top:14px"><input type="checkbox" id="qFinal"> <span><b>This is my final quote</b>. It will be locked and can no longer be revised.</span></label>`,
+    async()=>{
+      const L = readLines(); if(!L.length) return toast('Add at least one line item.',true);
+      if(num($('qDays').value)<=0) return toast('Please enter how many days the work will take.',true);
+      const att = await uploadField('qFiles',{type:'project',packageId:pk.PackageID,kind:'Quotations'});
+      await act('Submitting quote…',()=>api('api_submitQuote',S.token,inviteId,{Lines:L,DurationDays:$('qDays').value,WarrantyMonths:$('qWarr').value,
+        PaymentTerms:$('qTerms').value,Notes:$('qNotes').value,Attachments:(prev&&prev.Attachments||[]).concat(att)},$('qFinal').checked));
+      toast('Quotation submitted. The owner was notified.');
+    }, 'Submit quote', '', true);
+  calcLines();
+}
+const lineRow = l => `<tr><td><input type="text" class="lDesc" value="${h(l.desc)}" oninput="calcLines()"></td><td><input type="number" class="lQty" value="${h(l.qty)}" step="any" oninput="calcLines()"></td>
+  <td><input type="text" class="lUnit" value="${h(l.unit)}"></td><td><input type="number" class="lPrice" value="${h(l.price)}" step="any" oninput="calcLines()"></td>
+  <td class="num lAmt">—</td><td><button class="btn sm sec" onclick="this.closest('tr').remove();calcLines()">×</button></td></tr>`;
+function addLine(){ $('qLines').insertAdjacentHTML('beforeend',lineRow({desc:'',qty:1,unit:'',price:''})); }
+function readLines(){ return [...document.querySelectorAll('#qLines tr')].slice(1).map(tr=>({desc:tr.querySelector('.lDesc').value.trim(),qty:num(tr.querySelector('.lQty').value),unit:tr.querySelector('.lUnit').value,price:num(tr.querySelector('.lPrice').value)})).filter(l=>l.desc); }
+function calcLines(){ let t=0; document.querySelectorAll('#qLines tr').forEach((tr,i)=>{ if(!i) return; const a=num(tr.querySelector('.lQty').value)*num(tr.querySelector('.lPrice').value); t+=a; tr.querySelector('.lAmt').textContent=peso(a); }); if($('qTotal')) $('qTotal').textContent=peso(t); }
+function viewQuote(qid){
+  const q = byId('Quotes','QuoteID',qid), pk=pkgOf(q.PackageID), s=sup(q.SupplierID);
+  const revs = where('Quotes',x=>x.InviteID===q.InviteID).sort((a,b)=>b.Rev-a.Rev);
+  openModal(`Quotation – ${h(s.Company)} – ${h(pk.Trade)}`, `
+    <div class="row">${badge(q.Status)} <span class="muted small">Rev ${q.Rev} · ${h(q.CreatedAt)}</span>${truthy(q.IsFinal)?'<span class="badge b-blue">Final quote</span>':''}</div>
+    <div class="tw" style="margin-top:10px"><table><tr><th>Description</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit price</th><th class="num">Amount</th></tr>
+    ${(q.Lines||[]).map(l=>`<tr><td>${h(l.desc)}</td><td class="num">${h(l.qty)}</td><td>${h(l.unit)}</td><td class="num">${peso(l.price)}</td><td class="num">${peso(l.amount)}</td></tr>`).join('')}
+    <tr><td colspan="4" class="right"><b>Total</b></td><td class="num"><b>${peso(q.Total)}</b></td></tr></table></div>
+    <div class="f2 small" style="margin-top:10px"><div><b>Duration:</b> ${h(q.DurationDays)} days</div><div><b>Warranty:</b> ${h(q.WarrantyMonths||0)} months</div></div>
+    <p class="small"><b>Payment terms:</b> ${h(q.PaymentTerms||'—')}</p>${q.Notes?`<p class="small"><b>Notes:</b> ${nl(q.Notes)}</p>`:''}${media(q.Attachments)}
+    ${q.OwnerRemarks?`<div class="infobox">Owner: ${q.CounterAmount?'counter '+peso(q.CounterAmount)+' · ':''}${nl(q.OwnerRemarks)}</div>`:''}
+    ${revs.length>1?`<h3 style="margin-top:14px">Revision history</h3><div class="tw"><table><tr><th>Rev</th><th>Date</th><th class="num">Total</th><th>Status</th><th>Owner remarks</th></tr>
+      ${revs.map(r=>`<tr><td>${r.Rev}</td><td class="small">${h(r.CreatedAt)}</td><td class="num">${peso(r.Total)}</td><td>${badge(r.Status)}</td><td class="small">${r.CounterAmount?'Counter '+peso(r.CounterAmount)+' · ':''}${nl(r.OwnerRemarks)}</td></tr>`).join('')}</table></div>`:''}`,
+    null, 'Close', '', true);
+}
+
+/* ═════════════════ Owner / admin home ═════════════════ */
+function ownerHome(){
+  const prs = D().Projects||[];
+  return `<div class="row"><h1>My construction projects</h1><span class="spacer"></span><button class="btn" onclick="projectForm()">+ New project</button></div>
+    ${prs.length ? projectCards(prs) : `<div class="empty">No projects yet. Click <b>New project</b> to start.</div>`}`;
+}
+function projectCards(prs){
+  return `<div class="grid g2">${prs.map(pr=>{ const s=projStats(pr);
+    return `<div class="card" style="cursor:pointer" onclick="go('project','${pr.ProjectID}')">
+      <div class="row"><h3 style="margin:0">${h(pr.Name)}${pr.Branch?' – '+h(pr.Branch):''}</h3><span class="spacer"></span>${badge(pr.Status)}</div>
+      <div class="muted small">${h(pr.Address)}${S.me.role==='admin'?' · Owner: '+h(owner(pr.OwnerID).Name||'—'):''}</div>
+      <div class="row small" style="margin:10px 0 4px"><span>Overall progress ${pct(s.progress)}</span><span class="spacer"></span><span>${s.awarded}/${s.pks.length} packages awarded</span></div>${bar(s.progress)}
+      <div class="row small" style="margin-top:10px"><span>Contract <b>${peso(s.contract)}</b></span><span>Paid <b>${peso(s.paid)}</b></span><span>Balance <b>${peso(s.balance)}</b></span></div>
+      ${s.flags||s.concerns||s.reqs?`<div class="warnbox">${[s.flags?s.flags+' package(s) delayed / no update':'',s.concerns?s.concerns+' open concern(s)':'',s.reqs?s.reqs+' payment request(s)':''].filter(Boolean).join(' · ')}</div>`:''}
+    </div>`; }).join('')}</div>`;
+}
+function adminHome(){
+  const tab = S.tab.admin || 'projects';
+  const pendingSup = where('Suppliers',s=>s.Status==='Pending').length;
+  let body = '';
+  if(tab==='projects'){
+    body = `<div class="row" style="margin-bottom:10px"><span class="spacer"></span><button class="btn" onclick="projectForm()">+ New project</button></div>${(D().Projects||[]).length?projectCards(D().Projects):'<div class="empty">No projects yet.</div>'}`;
+  } else if(tab==='suppliers'){
+    const list = (D().Suppliers||[]).slice().sort((a,b)=>(a.Status==='Pending'?0:1)-(b.Status==='Pending'?0:1)||String(a.Company).localeCompare(b.Company));
+    body = list.length?`<div class="tw"><table><tr><th>Company</th><th>Trades</th><th>Contact</th><th>Docs</th><th>Status</th><th></th></tr>
+      ${list.map(s=>`<tr><td><b>${h(s.Company)}</b><div class="small muted">TIN ${h(s.TIN||'—')} · ${h(s.Address)}</div></td><td class="small">${h((s.Trades||[]).join(', '))}</td>
+        <td class="small">${h(s.ContactPerson)}<br>${h(s.Mobile)}<br>${h(s.Email)}</td><td>${media(s.Docs)||'<span class="muted small">none</span>'}</td><td>${badge(s.Status)}</td>
+        <td class="nowrap">${s.Status!=='Accredited'?`<button class="btn sm green" onclick="setSup('${s.SupplierID}','Accredited')">Accredit</button>`:''}
+        ${s.Status!=='Rejected'&&s.Status!=='Suspended'?`<button class="btn sm sec" onclick="setSup('${s.SupplierID}','${s.Status==='Accredited'?'Suspended':'Rejected'}')">${s.Status==='Accredited'?'Suspend':'Reject'}</button>`:''}</td></tr>`).join('')}</table></div>`:'<div class="empty">No suppliers registered yet. Share the portal link with your contractors so they can register.</div>';
+  } else {
+    body = `<div class="row" style="margin-bottom:10px"><p class="muted small" style="flex:1;margin:0">Each owner gets a private key. Paste it into the owner's Odoo contact (field <b>Construction Key</b>) so the app opens from their Odoo portal.</p><button class="btn" onclick="ownerForm()">+ Add owner</button></div>
+      ${(D().Owners||[]).length?`<div class="tw"><table><tr><th>Owner</th><th>Email / mobile</th><th>Odoo key</th><th>Projects</th><th></th></tr>
+      ${D().Owners.map(o=>`<tr><td><b>${h(o.Name)}</b> ${truthy(o.Active)?'':badge('Suspended')}</td><td class="small">${h(o.Email)}<br>${h(o.Mobile)}</td>
+        <td><span class="copy">${h(o.OdooKey)}</span> <button class="btn sm sec" onclick="copyText('${h(o.OdooKey)}')">Copy</button></td>
+        <td>${where('Projects',p=>p.OwnerID===o.OwnerID).length}</td>
+        <td class="nowrap"><button class="btn sm sec" onclick="ownerForm('${o.OwnerID}')">Edit</button> <button class="btn sm sec" onclick="viewAsOwner('${o.OwnerID}')">Open as owner</button>
+        <button class="btn sm sec" onclick="regenKey('${o.OwnerID}')">New key</button></td></tr>`).join('')}</table></div>`:'<div class="empty">No owners yet.</div>'}`;
+  }
+  return `<h1>Construction monitoring – Admin</h1>
+    <div class="tabs"><button class="tab ${tab==='projects'?'on':''}" onclick="S.tab.admin='projects';render()">Projects</button>
+    <button class="tab ${tab==='suppliers'?'on':''}" onclick="S.tab.admin='suppliers';render()">Suppliers${pendingSup?`<span class="cnt">${pendingSup}</span>`:''}</button>
+    <button class="tab ${tab==='owners'?'on':''}" onclick="S.tab.admin='owners';render()">Owners</button></div>${body}`;
+}
+function copyText(t){ navigator.clipboard.writeText(t).then(()=>toast('Copied')).catch(()=>prompt('Copy this:',t)); }
+function setSup(id,status){
+  openModal(`${status} supplier`, `<p>Set <b>${h(sup(id).Company)}</b> to <b>${status}</b>? The supplier will be emailed.</p><label>Remarks (optional)</label><textarea id="ssRem"></textarea>`,
+    ()=>act('Saving…',()=>api('api_setSupplierStatus',S.token,id,status,$('ssRem').value)), status, status==='Accredited'?'green':'red');
+}
+function ownerForm(id){
+  const o = id?owner(id):{};
+  openModal(id?'Edit owner':'Add owner', `<label>Name *</label><input type="text" id="owName" value="${h(o.Name)}">
+    <div class="f2"><div><label>Email * (for notifications)</label><input type="email" id="owEmail" value="${h(o.Email)}"></div><div><label>Mobile</label><input type="text" id="owMobile" value="${h(o.Mobile)}"></div></div>
+    ${id?`<label class="chk"><input type="checkbox" id="owActive" ${truthy(o.Active)?'checked':''}> Active</label>`:''}`,
+    ()=>act('Saving…',()=>api('api_saveOwner',S.token,{OwnerID:id,Name:$('owName').value,Email:$('owEmail').value,Mobile:$('owMobile').value,Active:id?$('owActive').checked:true})));
+}
+function regenKey(id){ openModal('Make a new key', `<p>The old key will stop working. You must paste the new key into the owner's Odoo contact.</p>`, ()=>act('Saving…',()=>api('api_regenOwnerKey',S.token,id)), 'Make new key','red'); }
+async function viewAsOwner(id){
+  const r = await run('Opening…',()=>api('api_ownerLinkAsAdmin',S.token,id));
+  S.adminToken = S.token; S.token=r.token; S.me=r.me; S.view={name:'home'};
+  $('asBanner').innerHTML = `Viewing as owner <b>${h(r.me.name)}</b> <button class="btn sm sec" onclick="backToAdmin()">Back to admin</button>`; $('asBanner').classList.remove('hidden');
+  await run('Loading…',reload);
+}
+async function backToAdmin(){ S.token=S.adminToken; S.adminToken=null; $('asBanner').classList.add('hidden'); S.view={name:'home'}; await run('Loading…',reload); }
+function projectForm(id){
+  const p = id?proj(id):{};
+  const ownersSel = S.me.role==='admin' ? `<label>Owner *</label><select id="pjOwner"><option value="">— choose —</option>${(D().Owners||[]).map(o=>`<option value="${o.OwnerID}" ${o.OwnerID===p.OwnerID?'selected':''}>${h(o.Name)}</option>`).join('')}</select>` : '';
+  openModal(id?'Edit project':'New construction project', `${ownersSel}
+    <div class="f2"><div><label>Project name *</label><input type="text" id="pjName" value="${h(p.Name)}" placeholder="e.g. Suds Laundry new store"></div><div><label>Branch</label><input type="text" id="pjBranch" value="${h(p.Branch)}"></div></div>
+    <label>Site address</label><input type="text" id="pjAddr" value="${h(p.Address)}">
+    <div class="f2"><div><label>Construction start (target)</label><input type="date" id="pjStart" value="${h(p.StartDate)}"></div><div><label>Target opening</label><input type="date" id="pjOpen" value="${h(p.TargetOpening)}"></div></div>
+    <label>Notes</label><textarea id="pjNotes">${h(p.Notes)}</textarea>`,
+    ()=>act('Saving…',async()=>{ const r = await api('api_saveProject',S.token,{ProjectID:id,OwnerID:$('pjOwner')&&$('pjOwner').value,Name:$('pjName').value,Branch:$('pjBranch').value,Address:$('pjAddr').value,StartDate:$('pjStart').value,TargetOpening:$('pjOpen').value,Notes:$('pjNotes').value});
+      if(!id) S.view={name:'project',id:r.ProjectID}; }));
+}
+
+/* ═════════════════ Project view (owner/admin; dashboard) ═════════════════ */
+function projectView(id){
+  const pr = proj(id); if(!pr.ProjectID) return `<div class="empty">Project not found.</div>`;
+  const s = projStats(pr);
+  const rows = s.pks.map(pk=>{ const st=pkgStats(pk), sp=pk.AwardedSupplierID?sup(pk.AwardedSupplierID):null;
+    const inv = where('Invitations',i=>i.PackageID===pk.PackageID), quoted = inv.filter(i=>where('Quotes',q=>q.InviteID===i.InviteID).length).length;
+    const flags = [st.delayed?'<span class="badge b-red">Delayed</span>':'', st.noUpdate?'<span class="badge b-red">No update</span>':'', st.overpaid?'<span class="badge b-amber">Paid ahead</span>':'',
+      st.pendingReq?`<span class="badge b-amber">${st.pendingReq} pay req</span>`:'', st.pendingCO?`<span class="badge b-amber">${st.pendingCO} CO</span>`:'', st.openConcerns?`<span class="badge b-red">${st.openConcerns} concern</span>`:''].join(' ');
+    return `<tr class="click" onclick="go('package','${pk.PackageID}')"><td><b>${h(pk.Trade)}</b><div class="small muted">${h(String(pk.Scope||'').slice(0,60))}</div></td>
+      <td>${sp?h(sp.Company):`<span class="small muted">${inv.length} invited · ${quoted} quoted</span>`}</td>
+      <td class="num">${pk.AwardedSupplierID?peso(st.contract):'—'}</td><td class="num">${st.coApproved?peso(st.coApproved):'—'}</td>
+      <td class="num">${pk.AwardedSupplierID?peso(st.paid):'—'}</td><td class="num">${pk.AwardedSupplierID?peso(st.balance):'—'}</td>
+      <td style="min-width:110px">${pk.AwardedSupplierID?`<div class="small">${pct(st.progress)}</div>${bar(st.progress)}`:'—'}</td>
+      <td class="num">${pk.AwardedSupplierID?pct(st.pctPaid):'—'}</td><td class="nowrap small">${st.mob?fmtD(st.mob.TargetEnd):'—'}</td>
+      <td>${badge(pk.Status)} ${flags}</td></tr>`; }).join('');
+  const own = S.me.role==='admin' ? ` · Owner: ${h(owner(pr.OwnerID).Name||'—')}` : '';
+  return `<button class="back" onclick="go('home')">← All projects</button>
+    <div class="row"><h1 style="margin:0">${h(pr.Name)}${pr.Branch?' – '+h(pr.Branch):''}</h1>${badge(pr.Status)}<span class="spacer"></span>
+      <button class="btn sec" onclick="projectForm('${pr.ProjectID}')">Edit</button><button class="btn" onclick="packageForm('${pr.ProjectID}')">+ Add package</button></div>
+    <p class="muted small">${h(pr.Address)}${own} · Start ${fmtD(pr.StartDate)} · Target opening ${fmtD(pr.TargetOpening)}</p>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Total contract</div><div class="v">${peso(s.contract)}</div></div>
+      <div class="kpi"><div class="l">Paid</div><div class="v">${peso(s.paid)}</div></div>
+      <div class="kpi"><div class="l">Balance</div><div class="v">${peso(s.balance)}</div></div>
+      <div class="kpi"><div class="l">% paid</div><div class="v">${pct(s.pctPaid)}</div></div>
+      <div class="kpi"><div class="l">Overall progress</div><div class="v">${pct(s.progress)}</div>${bar(s.progress)}</div>
+      <div class="kpi ${s.flags?'warn':''}"><div class="l">Delayed / no update</div><div class="v">${s.flags}</div></div>
+      <div class="kpi ${s.concerns?'warn':''}"><div class="l">Open concerns</div><div class="v">${s.concerns}</div></div>
+      <div class="kpi ${s.reqs?'warn':''}"><div class="l">Payment requests</div><div class="v">${s.reqs}</div></div>
+    </div>
+    ${s.pks.length?`<div class="tw"><table><tr><th>Package</th><th>Contractor</th><th class="num">Contract</th><th class="num">Change orders</th><th class="num">Paid</th><th class="num">Balance</th><th>Progress</th><th class="num">% Paid</th><th>Target end</th><th>Status</th></tr>${rows}
+      <tr><td colspan="2"><b>Total</b></td><td class="num"><b>${peso(s.contract)}</b></td><td></td><td class="num"><b>${peso(s.paid)}</b></td><td class="num"><b>${peso(s.balance)}</b></td><td><b>${pct(s.progress)}</b></td><td class="num"><b>${pct(s.pctPaid)}</b></td><td colspan="2"></td></tr></table></div>`
+      :`<div class="empty">Add the packages for this build: General Contractor, CCTV, WiFi, Sprinkler, Smoke Detector, LPG, Aircon, Glass, Signage…<br><br><button class="btn" onclick="quickPackages('${pr.ProjectID}')">Add all standard packages</button></div>`}`;
+}
+function packageForm(projectId, pkgId){
+  const p = pkgId?pkgOf(pkgId):{};
+  openModal(pkgId?'Edit package':'Add package', `<label>Trade *</label><select id="pkTrade">${D().trades.map(t=>`<option ${t===p.Trade?'selected':''}>${h(t)}</option>`).join('')}</select>
+    <label>Scope of work</label><textarea id="pkScope" placeholder="e.g. 3 units 2HP split-type aircon incl. 5m piping each">${h(p.Scope)}</textarea>
+    <p class="small muted">Tip: to split a trade between two suppliers (e.g. aircon units from one, installation from another), add two packages with the same trade.</p>`,
+    ()=>act('Saving…',()=>api('api_savePackage',S.token,{ProjectID:projectId,PackageID:pkgId,Trade:$('pkTrade').value,Scope:$('pkScope').value})));
+}
+function quickPackages(projectId){
+  const tr = D().trades.filter(t=>t!=='Others');
+  openModal('Add standard packages', tr.map(t=>`<label class="chk"><input type="checkbox" name="qp" value="${h(t)}" checked> ${h(t)}</label>`).join(''),
+    ()=>act('Adding packages…',async()=>{ for(const t of [...document.querySelectorAll('input[name=qp]:checked')].map(x=>x.value)) await api('api_savePackage',S.token,{ProjectID:projectId,Trade:t,Scope:''}); }));
+}
+
+/* ═════════════════ Package view ═════════════════ */
+const FLOW = ['Draft','Quoting','Awarded','Mobilized','Ongoing','For Turnover','Turned Over'];
+function packageView(id){
+  const pk = pkgOf(id); if(!pk.PackageID) return `<div class="empty">Not found.</div>`;
+  const pr = proj(pk.ProjectID), st = pkgStats(pk), awarded = !!pk.AwardedSupplierID, own = isOwnerSide();
+  const cur = pk.Status==='Turned Over' ? FLOW.length : FLOW.indexOf(pk.Status);
+  const steps = `<div class="steps">${FLOW.map((f,i)=>`<div class="step ${i<cur?'done':''} ${i===cur?'cur':''}">${f}</div>`).join('')}</div>`;
+  const back = own ? `<button class="back" onclick="go('project','${pk.ProjectID}')">← ${h(pr.Name)}${pr.Branch?' – '+h(pr.Branch):''}</button>` : `<button class="back" onclick="go('home')">← My projects</button>`;
+  let head = `${back}<div class="row"><h1 style="margin:0">${h(pk.Trade)}</h1>${badge(pk.Status)}<span class="spacer"></span>
+    ${own&&!awarded?`<button class="btn sec" onclick="packageForm('${pk.ProjectID}','${pk.PackageID}')">Edit scope</button>`:''}</div>
+    <p class="muted small">${h(pr.Name)}${pr.Branch?' – '+h(pr.Branch):''}${pr.Address?' · '+h(pr.Address):''}${awarded?' · Contractor: <b>'+h(sup(pk.AwardedSupplierID).Company)+'</b>':''}</p>
+    ${pk.Scope?`<p class="small">${nl(pk.Scope)}</p>`:''}${steps}`;
+  if(!awarded) return head + (own ? quotingSection(pk) : `<div class="empty">This package is not awarded.</div>`);
+
+  head += `<div class="kpis">
+    <div class="kpi"><div class="l">Contract</div><div class="v">${peso(st.contract)}</div>${st.coApproved?`<div class="small muted">incl. ${peso(st.coApproved)} change orders</div>`:''}</div>
+    <div class="kpi"><div class="l">Paid</div><div class="v">${peso(st.paid)}</div><div class="small muted">${pct(st.pctPaid)} of contract</div></div>
+    <div class="kpi"><div class="l">Balance</div><div class="v">${peso(st.balance)}</div>${st.retention?`<div class="small muted">retention ${peso(st.retention)}</div>`:''}</div>
+    <div class="kpi"><div class="l">Progress</div><div class="v">${pct(st.progress)}</div>${bar(st.progress)}<div class="small muted">reported ${pct(st.reported)}</div></div>
+    <div class="kpi ${st.delayed?'warn':''}"><div class="l">Target end</div><div class="v" style="font-size:16px">${st.mob?fmtD(st.mob.TargetEnd):'—'}</div>${st.delayed?'<div class="small" style="color:var(--red)">Delayed</div>':''}</div>
+  </div>
+  ${st.noUpdate?`<div class="warnbox">No weekly update in the last 7 days (last: ${st.lastUp?fmtD(st.lastUp):'none'}).</div>`:''}
+  ${st.overpaid&&own?`<div class="warnbox">Payments (${pct(st.pctPaid)}) are ahead of progress (${pct(st.progress)}). Check before paying more.</div>`:''}`;
+  const tabs = [['overview','Overview'],['updates','Weekly updates'],['milestones','Milestones'],['concerns','Concerns',st.openConcerns],['payments','Payments',own?st.pendingReq:st.unconfirmed],
+    ['co','Change orders',own?st.pendingCO:0],['turnover','Turnover',own&&pk.Status==='For Turnover'?1:0]];
+  const t = S.tab['p'+id] || 'overview';
+  head += `<div class="tabs">${tabs.map(([k,l,c])=>`<button class="tab ${t===k?'on':''}" onclick="S.tab['p${id}']='${k}';render()">${l}${c?`<span class="cnt">${c}</span>`:''}</button>`).join('')}</div>`;
+  const body = { overview:overviewTab, updates:updatesTab, milestones:milestonesTab, concerns:concernsTab, payments:paymentsTab, co:coTab, turnover:turnoverTab }[t](pk, st, own);
+  return head + body;
+}
+
+/* — Quoting (owner, before award) — */
+function quotingSection(pk){
+  const inv = where('Invitations',i=>i.PackageID===pk.PackageID);
+  const counts = {invited:inv.length, quoted:0, declined:inv.filter(i=>i.Status==='Declined').length, pending:0};
+  const rows = inv.map(i=>{ const s=sup(i.SupplierID), q=latestQuote(i.InviteID); if(q) counts.quoted++; else if(['Invited','Viewed'].includes(i.Status)) counts.pending++;
+    const acts = q && !['Declined','Superseded'].includes(q.Status) ? `<button class="btn sm sec" onclick="viewQuote('${q.QuoteID}')">View</button>
+       <button class="btn sm sec" onclick="negotiate('${q.QuoteID}')">Negotiate</button>
+       ${q.Status!=='Accepted'?`<button class="btn sm sec" onclick="quoteAct('${q.QuoteID}','accept')">Accept</button>`:''}
+       <button class="btn sm sec" onclick="quoteAct('${q.QuoteID}','decline')">Decline</button>
+       <button class="btn sm green" onclick="awardForm('${q.QuoteID}')">Award</button>`
+      : q ? `<button class="btn sm sec" onclick="viewQuote('${q.QuoteID}')">View</button>`
+      : ['Invited','Viewed','Expired'].includes(i.Status) ? `<button class="btn sm sec" onclick="extendInvite('${i.InviteID}')">Extend deadline</button>` : '';
+    return `<tr><td><b>${h(s.Company)}</b><div class="small muted">${h(s.ContactPerson)} · ${h(s.Mobile)}</div></td><td>${badge(i.Status)}${i.DeclineReason?`<div class="small muted">${h(i.DeclineReason)}</div>`:''}</td>
+      <td class="small nowrap">${fmtD(i.Deadline)}</td><td class="num">${q?peso(q.Total):'—'}</td><td class="num">${q?h(q.DurationDays)+' days':'—'}</td>
+      <td>${q?`Rev ${q.Rev} ${truthy(q.IsFinal)?'<span class="badge b-blue">Final</span>':''}<br>${badge(q.Status)}`:'—'}</td><td class="nowrap">${acts}</td></tr>`; }).join('');
+  const quotes = inv.map(i=>latestQuote(i.InviteID)).filter(q=>q&&!['Declined','Superseded'].includes(q.Status));
+  const low = quotes.length ? Math.min(...quotes.map(q=>num(q.Total))) : 0;
+  return `<div class="kpis"><div class="kpi"><div class="l">Invited</div><div class="v">${counts.invited}</div></div><div class="kpi"><div class="l">Quoted</div><div class="v">${counts.quoted}</div></div>
+      <div class="kpi"><div class="l">Declined</div><div class="v">${counts.declined}</div></div><div class="kpi"><div class="l">Waiting</div><div class="v">${counts.pending}</div></div>
+      <div class="kpi"><div class="l">Lowest quote</div><div class="v">${low?peso(low):'—'}</div></div></div>
+    <div class="row"><h2 style="margin:0">Invitations & quotations</h2><span class="spacer"></span><button class="btn" onclick="inviteForm('${pk.PackageID}')">+ Invite suppliers to quote</button></div>
+    <div style="margin-top:10px">${inv.length?`<div class="tw"><table><tr><th>Supplier</th><th>Invitation</th><th>Deadline</th><th class="num">Quote</th><th class="num">Duration</th><th>Quote status</th><th></th></tr>${rows}</table></div>`
+      :`<div class="empty">No suppliers invited yet. Click <b>Invite suppliers to quote</b>.</div>`}</div>`;
+}
+function inviteForm(pkgId){
+  const pk = pkgOf(pkgId), already = where('Invitations',i=>i.PackageID===pkgId&&!['Declined','Expired'].includes(i.Status)).map(i=>i.SupplierID);
+  const list = where('Suppliers',s=>s.Status==='Accredited');
+  const match = list.filter(s=>(s.Trades||[]).includes(pk.Trade)), other = list.filter(s=>!(s.Trades||[]).includes(pk.Trade));
+  const item = s => `<label class="chk"><input type="checkbox" name="ivSup" value="${s.SupplierID}" ${already.includes(s.SupplierID)?'disabled checked':''}> <span><b>${h(s.Company)}</b> <span class="muted small">${h((s.Trades||[]).join(', '))} · ${h(s.Address||'')}</span>${already.includes(s.SupplierID)?' <span class="badge">already invited</span>':''}</span></label>`;
+  const d = new Date(); d.setDate(d.getDate()+7);
+  openModal(`Invite suppliers – ${h(pk.Trade)}`, `
+    <label>Accredited ${h(pk.Trade)} suppliers</label>${match.length?match.map(item).join(''):'<p class="muted small">None accredited for this trade yet.</p>'}
+    ${other.length?`<details style="margin-top:6px"><summary class="small">Show other accredited suppliers (${other.length})</summary>${other.map(item).join('')}</details>`:''}
+    <label>Brief / what you need</label><textarea id="ivBrief">${h(pk.Scope)}</textarea>
+    <div class="f2"><div><label>Quote deadline *</label><input type="date" id="ivDl" value="${d.toISOString().slice(0,10)}"></div><div><label>Site visit (optional)</label><input type="text" id="ivVisit" placeholder="e.g. Nov 20, 10am – call Mark"></div></div>
+    <label>Attachments (floor plan, site photos)</label>${fileField('ivFiles','image/*,application/pdf',true)}`,
+    async()=>{ const ids=[...document.querySelectorAll('input[name=ivSup]:checked:not(:disabled)')].map(x=>x.value); if(!ids.length) return toast('Choose at least one supplier.',true);
+      const att = await uploadField('ivFiles',{type:'project',packageId:pkgId,kind:'Invitation files'});
+      const brief = $('ivBrief').value + ($('ivVisit').value?`\nSite visit: ${$('ivVisit').value}`:'');
+      await act('Sending invitations…',()=>api('api_invite',S.token,pkgId,ids,brief,$('ivDl').value,att)); toast('Invitations sent.'); }, 'Send invitations','',true);
+}
+function extendInvite(id){ openModal('Extend quote deadline', `<label>New deadline</label><input type="date" id="exDl">`, ()=>act('Saving…',()=>api('api_extendInvite',S.token,id,$('exDl').value))); }
+function negotiate(qid){
+  const q = byId('Quotes','QuoteID',qid);
+  openModal('Negotiate price', `<p>Current quote: <b>${peso(q.Total)}</b> (Rev ${q.Rev})</p><label>Your counter-offer (optional)</label><input type="number" id="ngAmt" step="any">
+    <label>Remarks to the supplier</label><textarea id="ngRem" placeholder="e.g. Can you lower the labor cost? Please include the 2nd floor."></textarea>`,
+    ()=>act('Sending…',()=>api('api_quoteAction',S.token,qid,'negotiate',$('ngRem').value,$('ngAmt').value)), 'Send to supplier');
+}
+function quoteAct(qid, action){
+  const q = byId('Quotes','QuoteID',qid), s = sup(q.SupplierID);
+  openModal(action==='accept'?'Accept quote':'Decline quote', `<p>${action==='accept'?'Accept':'Decline'} <b>${h(s.Company)}</b>'s quote of <b>${peso(q.Total)}</b>? The supplier will be emailed.</p>
+    ${action==='accept'?'<p class="small muted">Accepting agrees to the price. You still choose the winner with <b>Award</b>.</p>':''}<label>Remarks (optional)</label><textarea id="qaRem"></textarea>`,
+    ()=>act('Saving…',()=>api('api_quoteAction',S.token,qid,action,$('qaRem').value)), action==='accept'?'Accept':'Decline', action==='accept'?'green':'red');
+}
+function awardForm(qid){
+  const q = byId('Quotes','QuoteID',qid), s = sup(q.SupplierID), pk = pkgOf(q.PackageID);
+  const others = where('Quotes',x=>x.PackageID===q.PackageID&&x.SupplierID!==q.SupplierID&&!['Superseded','Declined'].includes(x.Status)).length;
+  openModal(`Award ${h(pk.Trade)}`, `<p>Award to <b>${h(s.Company)}</b>?</p>
+    ${!truthy(q.IsFinal)&&q.Status!=='Accepted'?'<div class="infobox">This quote is not marked final or accepted yet. You can still award it.</div>':''}
+    <div class="f2"><div><label>Contract amount</label><input type="number" id="awAmt" step="any" value="${num(q.Total)}"></div><div><label>Retention % (held until turnover)</label><input type="number" id="awRet" value="0" min="0" max="20"></div></div>
+    <p class="small muted">Payment terms quoted: ${h(q.PaymentTerms||'—')}</p>
+    <label class="chk"><input type="checkbox" id="awDp" ${/dp|down/i.test(q.PaymentTerms||'')?'checked':''}> Supplier requires a <b>downpayment</b> before mobilizing</label>
+    ${others?`<label>Note to the ${others} other supplier(s) (optional)</label><input type="text" id="awRegret" placeholder="e.g. price was above our budget"><p class="small muted">They'll get a thank-you email. The winner and price are not shown.</p>`:''}`,
+    ()=>act('Awarding…',()=>api('api_award',S.token,q.PackageID,qid,{amount:$('awAmt').value,retentionPct:$('awRet').value,dpRequired:$('awDp').checked,regretRemark:$('awRegret')?$('awRegret').value:''})), 'Award','green');
+}
+
+/* — Overview / mobilization — */
+function overviewTab(pk, st, own){
+  const m = st.mob, s = sup(pk.AwardedSupplierID), q = byId('Quotes','QuoteID',pk.AwardedQuoteID);
+  const dpNeeded = truthy(pk.DPRequired), dpSent = where('Payments',p=>p.PackageID===pk.PackageID&&p.Type==='Downpayment').length;
+  let mobBox;
+  if(m) mobBox = `<div class="tw"><table>
+      <tr><td class="muted">Mobilization date</td><td><b>${fmtD(m.MobDate)}</b></td><td class="muted">Duration</td><td><b>${h(m.DurationDays)} days</b></td></tr>
+      <tr><td class="muted">Target completion</td><td><b>${fmtD(m.TargetEnd)}</b></td><td class="muted">Workers</td><td><b>${h(m.Workers)}</b></td></tr>
+      <tr><td class="muted">Foreman</td><td colspan="3"><b>${h(m.Foreman)}</b> ${h(m.ForemanMobile)}</td></tr>
+      <tr><td class="muted">Materials</td><td colspan="3">${nl(m.Materials)}</td></tr>${m.Notes?`<tr><td class="muted">Notes</td><td colspan="3">${nl(m.Notes)}</td></tr>`:''}</table></div>
+      ${!own&&!['For Turnover','Turned Over'].includes(pk.Status)?`<button class="btn sm sec" style="margin-top:8px" onclick="mobForm('${pk.PackageID}')">Edit mobilization</button>`:''}`;
+  else if(dpNeeded && !dpSent) mobBox = `<div class="infobox">${own?'Waiting for you to send the downpayment (go to <b>Payments</b> → Record payment). The contractor will then submit the mobilization schedule.':'Waiting for the owner to send the downpayment. You can submit mobilization details after that.'}</div>`;
+  else mobBox = own ? `<div class="infobox">Waiting for the contractor to submit the mobilization schedule.</div>` : `<div class="infobox">Please submit your mobilization date, manpower and materials.</div><button class="btn" onclick="mobForm('${pk.PackageID}')">Submit mobilization</button>`;
+  return `<div class="grid g2"><div class="card"><h3>Mobilization</h3>${mobBox}</div>
+    <div class="card"><h3>Contract</h3><div class="small">
+      <p><b>Contractor:</b> ${h(s.Company)} · ${h(s.ContactPerson||'')} ${h(s.Mobile||'')} ${h(s.Email||'')}</p>
+      <p><b>Awarded:</b> ${h(pk.AwardedAt)} · <b>Downpayment:</b> ${dpNeeded?'required':'none'} · <b>Retention:</b> ${num(pk.RetentionPct)}%</p>
+      ${q?`<p><b>Payment terms:</b> ${h(q.PaymentTerms||'—')} · <b>Warranty:</b> ${h(q.WarrantyMonths||0)} months</p><button class="btn sm sec" onclick="viewQuote('${q.QuoteID}')">View awarded quote</button>`:''}
+      ${own&&!where('Payments',p=>p.PackageID===pk.PackageID).length?` <button class="btn sm sec" onclick="cancelAward('${pk.PackageID}')">Cancel award</button>`:''}
+      ${pk.TurnedOverAt?`<p class="okbox">Turned over ${h(pk.TurnedOverAt)}${pk.WarrantyEnd?' · warranty until '+fmtD(pk.WarrantyEnd):''}</p>`:''}</div></div></div>
+    ${st.ups[0]?`<h2>Latest update</h2>${updateItem(st.ups[0])}`:''}`;
+}
+function mobForm(pkgId){
+  const m = byId('Mobilization','PackageID',pkgId)||{}, q = byId('Quotes','QuoteID',pkgOf(pkgId).AwardedQuoteID)||{};
+  openModal('Mobilization details', `<div class="f2"><div><label>Mobilization date *</label><input type="date" id="mbDate" value="${h(m.MobDate)}"></div>
+    <div><label>How long will the work take? (days) *</label><input type="number" id="mbDays" min="1" value="${h(m.DurationDays||q.DurationDays||'')}"></div></div>
+    <div class="f2"><div><label>Number of workers</label><input type="number" id="mbWorkers" min="0" value="${h(m.Workers)}"></div><div><label>Foreman name</label><input type="text" id="mbForeman" value="${h(m.Foreman)}"></div></div>
+    <label>Foreman mobile</label><input type="text" id="mbFm" value="${h(m.ForemanMobile)}">
+    <label>Materials & delivery dates</label><textarea id="mbMat" placeholder="e.g. Tiles – Nov 25; Paint – Dec 2">${h(m.Materials)}</textarea>
+    <label>Notes</label><textarea id="mbNotes">${h(m.Notes)}</textarea>`,
+    ()=>act('Saving…',()=>api('api_saveMobilization',S.token,{PackageID:pkgId,MobDate:$('mbDate').value,DurationDays:$('mbDays').value,Workers:$('mbWorkers').value,Foreman:$('mbForeman').value,ForemanMobile:$('mbFm').value,Materials:$('mbMat').value,Notes:$('mbNotes').value})));
+}
+function cancelAward(pkgId){ openModal('Cancel award', `<p>The contractor will be emailed and you can award another quote.</p><label>Reason *</label><textarea id="caR"></textarea>`,
+  ()=>{ if(!$('caR').value.trim()) return toast('Please give a reason.',true); return act('Saving…',()=>api('api_cancelAward',S.token,pkgId,$('caR').value)); }, 'Cancel award','red'); }
+
+/* — Weekly updates — */
+function updateItem(u){
+  return `<div class="item"><div class="row"><b>Week of ${fmtD(u.WeekOf)}</b><span class="pill">${pct(u.Percent)}</span><span class="muted small">posted ${h(u.SubmittedAt)} · ${h(u.Manpower)} workers</span></div>
+    <p class="small"><b>Work done:</b> ${nl(u.WorkDone)}</p>${u.NextPlan?`<p class="small"><b>Next week:</b> ${nl(u.NextPlan)}</p>`:''}
+    ${u.Delays?`<p class="small" style="color:var(--red)"><b>Delays:</b> ${nl(u.Delays)}</p>`:''}${media(u.Media,u.VideoLink)}</div>`;
+}
+function updatesTab(pk, st, own){
+  const can = !own && ['Awarded','Mobilized','Ongoing'].includes(pk.Status) && st.mob;
+  return `<div class="row" style="margin-bottom:10px"><span class="muted small">Contractors post an update every week with progress, work done, next week's plan and at least 3 photos.</span><span class="spacer"></span>
+    ${can?`<button class="btn" onclick="updateForm('${pk.PackageID}')">+ Submit weekly update</button>`:''}</div>
+    ${!own&&!st.mob?'<div class="infobox">Submit your mobilization details first (Overview tab).</div>':''}
+    ${st.ups.length?`<div class="feed">${st.ups.map(updateItem).join('')}</div>`:'<div class="empty">No updates yet.</div>'}`;
+}
+function updateForm(pkgId){
+  const st = pkgStats(pkgOf(pkgId));
+  openModal('Weekly update', `<div class="f2"><div><label>Week of</label><input type="date" id="upWeek" value="${D().today}"></div>
+    <div><label>Overall % complete *</label><input type="number" id="upPct" min="0" max="100" value="${Math.round(st.reported)}"></div></div>
+    <label>Work done this week *</label><textarea id="upDone"></textarea>
+    <label>Plan for next week</label><textarea id="upNext"></textarea>
+    <div class="f2"><div><label>Manpower this week</label><input type="number" id="upMan" min="0" value="${h(st.mob?st.mob.Workers:'')}"></div>
+    <div><label>Video link (optional)</label><input type="url" id="upVid" placeholder="Google Drive / YouTube link"></div></div>
+    <label>Delays or issues (if any)</label><textarea id="upDelay" placeholder="Leave blank if none"></textarea>
+    <label>Photos (at least 3) and short videos *</label>${fileField('upFiles','image/*,video/*',true)}
+    <p class="small muted">Videos: keep them under 1 minute, or paste a link above.</p>`,
+    async()=>{ const f = $('upFiles').files; if([...f].filter(x=>/^image\//.test(x.type)).length<3) return toast('Please attach at least 3 photos.',true);
+      if(!$('upDone').value.trim()) return toast('Please describe the work done.',true);
+      const files = await uploadField('upFiles',{type:'project',packageId:pkgId,kind:'Weekly updates/'+$('upWeek').value});
+      await act('Posting update…',()=>api('api_submitUpdate',S.token,{PackageID:pkgId,WeekOf:$('upWeek').value,Percent:$('upPct').value,WorkDone:$('upDone').value,NextPlan:$('upNext').value,
+        Manpower:$('upMan').value,Delays:$('upDelay').value,VideoLink:$('upVid').value,Media:files})); toast('Update posted. The owner was notified.'); }, 'Post update','',true);
+}
+
+/* — Milestones — */
+function milestonesTab(pk, st, own){
+  const ms = st.ms, canTick = !own || S.me.role==='admin';
+  return `<div class="row" style="margin-bottom:10px"><span class="muted small">Progress is computed from the milestones that are done (weighted). Each milestone needs a photo.</span><span class="spacer"></span>
+    ${pk.Status!=='Turned Over'?`<button class="btn sec" onclick="msEdit('${pk.PackageID}')">Edit milestones</button>`:''}</div>
+    ${ms.length?`<div class="tw"><table><tr><th>#</th><th>Milestone</th><th class="num">Weight</th><th>Status</th><th>Photos</th><th></th></tr>
+    ${ms.map(m=>`<tr><td>${m.Seq}</td><td><b>${h(m.Name)}</b></td><td class="num">${num(m.Weight).toFixed(1)}%</td>
+      <td>${truthy(m.Done)?`<span class="badge b-green">Done</span><div class="small muted">${h(m.DoneAt)}</div>`:'<span class="badge">Not yet</span>'}</td>
+      <td>${media(m.Photos)}</td><td>${canTick&&pk.Status!=='Turned Over'?(truthy(m.Done)?`<button class="btn sm sec" onclick="msTick('${m.MilestoneID}',false)">Undo</button>`:`<button class="btn sm" onclick="msDone('${m.MilestoneID}')">Mark done</button>`):''}</td></tr>`).join('')}</table></div>
+    <div class="row" style="margin-top:10px"><span>Milestone progress: <b>${pct(st.msPct||0)}</b></span><div style="flex:1;max-width:300px">${bar(st.msPct||0)}</div></div>`:'<div class="empty">No milestones yet.</div>'}`;
+}
+function msDone(id){
+  const m = byId('Milestones','MilestoneID',id);
+  openModal('Mark milestone done', `<p><b>${h(m.Name)}</b></p><label>Photo(s) *</label>${fileField('msFiles','image/*,video/*',true)}`,
+    async()=>{ if(!$('msFiles').files.length) return toast('Please attach at least one photo.',true);
+      const f = await uploadField('msFiles',{type:'project',packageId:m.PackageID,kind:'Milestones'}); await act('Saving…',()=>api('api_tickMilestone',S.token,id,true,f)); });
+}
+function msTick(id,done){ act('Saving…',()=>api('api_tickMilestone',S.token,id,done,[])); }
+function msEdit(pkgId){
+  const ms = pkgStats(pkgOf(pkgId)).ms;
+  const row = m => `<tr data-id="${h(m.MilestoneID||'')}"><td><input type="text" class="mName" value="${h(m.Name)}"></td><td style="width:100px"><input type="number" class="mW" step="any" value="${h(m.Weight)}"></td><td><button class="btn sm sec" onclick="this.closest('tr').remove()">×</button></td></tr>`;
+  window._msRow = row;
+  openModal('Edit milestones', `<p class="small muted">Weights are relative (they don't need to add up to 100). Done milestones can't be removed.</p>
+    <div class="tw"><table class="lines" id="msT"><tr><th>Milestone</th><th>Weight</th><th></th></tr>${ms.map(row).join('')}</table></div>
+    <button class="btn sm sec" style="margin-top:8px" onclick="document.getElementById('msT').insertAdjacentHTML('beforeend',_msRow({Name:'',Weight:10}))">+ Add milestone</button>`,
+    ()=>act('Saving…',()=>api('api_saveMilestones',S.token,pkgId,[...document.querySelectorAll('#msT tr')].slice(1).map(tr=>({MilestoneID:tr.dataset.id,Name:tr.querySelector('.mName').value,Weight:tr.querySelector('.mW').value})))));
+}
+
+/* — Concerns — */
+function concernsTab(pk, st, own){
+  const list = where('Concerns',c=>c.PackageID===pk.PackageID).sort((a,b)=>(a.Status==='Resolved')-(b.Status==='Resolved')||String(b.CreatedAt).localeCompare(a.CreatedAt));
+  return `<div class="row" style="margin-bottom:10px"><span class="muted small">Raise any issue during construction: site problems, need of owner decision, materials, safety…</span><span class="spacer"></span>
+    ${pk.Status!=='Turned Over'?`<button class="btn" onclick="concernForm('${pk.PackageID}')">+ Raise a concern</button>`:''}</div>
+    ${list.length?list.map(c=>`<div class="card"><div class="row"><span class="pill">${h(c.Category)}</span>${badge(c.Status)}<span class="muted small">by ${h(c.RaisedByName)} (${h(c.RaisedBy)}) · ${h(c.CreatedAt)}</span></div>
+      <p>${nl(c.Description)}</p>${media(c.Media)}
+      ${c.Response?`<div class="infobox" style="white-space:normal">${nl(c.Response)}</div>`:''}
+      ${c.Status!=='Resolved'?`<div class="row"><button class="btn sm sec" onclick="concernReply('${c.ConcernID}')">Reply</button>${isOwnerSide()||c.RaisedBy==='Supplier'?`<button class="btn sm green" onclick="concernReply('${c.ConcernID}',true)">Mark resolved</button>`:''}</div>`:''}</div>`).join('')
+    :'<div class="empty">No concerns raised.</div>'}`;
+}
+function concernForm(pkgId){
+  openModal('Raise a concern', `<label>Category</label><select id="cnCat">${['Site issue','Need owner decision','Materials','Design / plan','Safety','Schedule / delay','Payment','Others'].map(c=>`<option>${c}</option>`).join('')}</select>
+    <label>Details *</label><textarea id="cnDesc"></textarea><label>Photos / video</label>${fileField('cnFiles','image/*,video/*,application/pdf',true)}`,
+    async()=>{ if(!$('cnDesc').value.trim()) return toast('Please describe the concern.',true);
+      const f = await uploadField('cnFiles',{type:'project',packageId:pkgId,kind:'Concerns'});
+      await act('Sending…',()=>api('api_raiseConcern',S.token,{PackageID:pkgId,Category:$('cnCat').value,Description:$('cnDesc').value,Media:f})); });
+}
+function concernReply(id, resolve){
+  openModal(resolve?'Mark concern resolved':'Reply to concern', `<label>${resolve?'Resolution note':'Your reply'} *</label><textarea id="crTxt"></textarea>`,
+    ()=>{ if(!$('crTxt').value.trim()) return toast('Please write something.',true); return act('Sending…',()=>api('api_respondConcern',S.token,id,$('crTxt').value,resolve?'Resolved':'Responded')); });
+}
+
+/* — Payments — */
+function paymentsTab(pk, st, own){
+  const reqs = where('PayRequests',r=>r.PackageID===pk.PackageID).sort((a,b)=>String(b.RequestedAt).localeCompare(a.RequestedAt));
+  const pays = where('Payments',p=>p.PackageID===pk.PackageID).sort((a,b)=>String(b.PaidDate).localeCompare(a.PaidDate));
+  return `<div class="kpis"><div class="kpi"><div class="l">Contract</div><div class="v">${peso(st.contract)}</div></div><div class="kpi"><div class="l">Paid</div><div class="v">${peso(st.paid)}</div></div>
+    <div class="kpi"><div class="l">Balance</div><div class="v">${peso(st.balance)}</div></div><div class="kpi"><div class="l">% paid vs progress</div><div class="v">${pct(st.pctPaid)} / ${pct(st.progress)}</div></div></div>
+    <div class="row"><h2 style="margin:0">Payment requests</h2><span class="spacer"></span>${!own&&pk.Status!=='Turned Over'||!own&&num(pk.RetentionPct)?`<button class="btn" onclick="payReqForm('${pk.PackageID}')">+ Request payment</button>`:''}</div>
+    <div style="margin:10px 0 20px">${reqs.length?`<div class="tw"><table><tr><th>Date</th><th>Type</th><th>For</th><th class="num">Amount</th><th>Status</th><th></th></tr>
+      ${reqs.map(r=>`<tr><td class="small nowrap">${h(r.RequestedAt)}</td><td>${h(r.Type)}</td><td class="small">${h(r.Milestone)}${r.Notes?'<br><span class="muted">'+nl(r.Notes)+'</span>':''}${media(r.Attachments)}</td>
+        <td class="num">${peso(r.Amount)}</td><td>${badge(r.Status)}${r.RejectReason?`<div class="small muted">${h(r.RejectReason)}</div>`:''}</td>
+        <td class="nowrap">${own&&r.Status==='Requested'?`<button class="btn sm green" onclick="payForm('${pk.PackageID}','${r.RequestID}')">Pay & upload proof</button> <button class="btn sm sec" onclick="rejectReq('${r.RequestID}')">Reject</button>`:''}</td></tr>`).join('')}</table></div>`:'<div class="empty">No payment requests.</div>'}</div>
+    <div class="row"><h2 style="margin:0">Payments made</h2><span class="spacer"></span>${own?`<button class="btn" onclick="payForm('${pk.PackageID}')">+ Record payment</button>`:''}</div>
+    <div style="margin-top:10px">${pays.length?`<div class="tw"><table><tr><th>Date</th><th>Type</th><th class="num">Amount</th><th>Method / ref</th><th>Proof of settlement</th><th>Status</th><th></th></tr>
+      ${pays.map(p=>`<tr><td class="nowrap">${fmtD(p.PaidDate)}</td><td>${h(p.Type)}</td><td class="num">${peso(p.Amount)}</td><td class="small">${h(p.Method)}<br>${h(p.RefNo)}</td><td>${media(p.Proof)||'<span class="small muted">—</span>'}</td>
+        <td>${badge(p.Status)}${p.ConfirmedAt?`<div class="small muted">${h(p.ConfirmedAt)}</div>`:''}</td><td>${!own&&p.Status==='Sent'?`<button class="btn sm green" onclick="confirmPay('${p.PaymentID}')">Confirm received</button>`:''}</td></tr>`).join('')}
+      <tr><td colspan="2"><b>Total paid</b></td><td class="num"><b>${peso(st.paid)}</b></td><td colspan="4"></td></tr></table></div>`:'<div class="empty">No payments yet.</div>'}</div>`;
+}
+function payReqForm(pkgId){
+  const ms = pkgStats(pkgOf(pkgId)).ms;
+  openModal('Request payment', `<div class="f2"><div><label>Type</label><select id="rqType"><option>Progress</option><option>Downpayment</option><option>Final</option><option>Retention</option><option>Change order</option></select></div>
+    <div><label>Amount *</label><input type="number" id="rqAmt" step="any"></div></div>
+    <label>For (milestone / billing)</label><input type="text" id="rqFor" list="rqMs" placeholder="e.g. 2nd billing – 50% progress"><datalist id="rqMs">${ms.map(m=>`<option value="${h(m.Name)}">`).join('')}</datalist>
+    <label>Notes / bank details</label><textarea id="rqNotes"></textarea><label>Billing statement / invoice (optional)</label>${fileField('rqFiles','application/pdf,image/*',true)}`,
+    async()=>{ if(num($('rqAmt').value)<=0) return toast('Enter the amount.',true);
+      const f = await uploadField('rqFiles',{type:'project',packageId:pkgId,kind:'Payment requests'});
+      await act('Sending…',()=>api('api_requestPayment',S.token,{PackageID:pkgId,Type:$('rqType').value,Amount:$('rqAmt').value,Milestone:$('rqFor').value,Notes:$('rqNotes').value,Attachments:f})); toast('Payment request sent to the owner.'); });
+}
+function payForm(pkgId, reqId){
+  const r = reqId ? byId('PayRequests','RequestID',reqId) : null, pk = pkgOf(pkgId);
+  const hasDp = where('Payments',p=>p.PackageID===pkgId&&p.Type==='Downpayment').length;
+  const defType = r ? r.Type : (truthy(pk.DPRequired)&&!hasDp ? 'Downpayment' : 'Progress');
+  openModal(r?'Pay request & upload proof':'Record payment', `${r?`<div class="infobox">Request: ${h(r.Type)} · ${peso(r.Amount)} · ${h(r.Milestone)}</div>`:''}
+    <div class="f2"><div><label>Type</label><select id="pyType">${['Downpayment','Progress','Final','Retention','Change order'].map(t=>`<option ${t===defType?'selected':''}>${t}</option>`).join('')}</select></div>
+    <div><label>Amount paid *</label><input type="number" id="pyAmt" step="any" value="${r?num(r.Amount):''}"></div></div>
+    <div class="f2"><div><label>Date paid</label><input type="date" id="pyDate" value="${D().today}"></div><div><label>Method</label><select id="pyMethod">${['Bank transfer','GCash','Check','Cash','Maya','Others'].map(m=>`<option>${m}</option>`).join('')}</select></div></div>
+    <label>Reference no.</label><input type="text" id="pyRef">
+    <label>Proof of settlement (deposit slip / screenshot)</label>${fileField('pyFiles','image/*,application/pdf',true)}
+    <label>Notes</label><input type="text" id="pyNotes">`,
+    async()=>{ if(num($('pyAmt').value)<=0) return toast('Enter the amount.',true);
+      const f = await uploadField('pyFiles',{type:'project',packageId:pkgId,kind:'Payments'});
+      await act('Saving payment…',()=>api('api_recordPayment',S.token,{PackageID:pkgId,RequestID:reqId||'',Type:$('pyType').value,Amount:$('pyAmt').value,PaidDate:$('pyDate').value,Method:$('pyMethod').value,RefNo:$('pyRef').value,Proof:f,Notes:$('pyNotes').value}));
+      toast('Payment recorded. The contractor was emailed.'); }, 'Save payment','green');
+}
+function rejectReq(id){ openModal('Reject payment request', `<label>Reason *</label><textarea id="rjR"></textarea>`, ()=>{ if(!$('rjR').value.trim()) return toast('Please give a reason.',true); return act('Saving…',()=>api('api_rejectRequest',S.token,id,$('rjR').value)); }, 'Reject','red'); }
+function confirmPay(id){ act('Confirming…',()=>api('api_confirmPayment',S.token,id)); }
+
+/* — Change orders — */
+function coTab(pk, st, own){
+  const list = where('ChangeOrders',c=>c.PackageID===pk.PackageID).sort((a,b)=>String(b.RequestedAt).localeCompare(a.RequestedAt));
+  return `<div class="row" style="margin-bottom:10px"><span class="muted small">Extra work, additional cost or more days. Approved change orders update the contract amount and target end date.</span><span class="spacer"></span>
+    ${!own&&!['Turned Over'].includes(pk.Status)?`<button class="btn" onclick="coForm('${pk.PackageID}')">+ Request change order</button>`:''}</div>
+    ${list.length?`<div class="tw"><table><tr><th>Date</th><th>Change</th><th class="num">Amount</th><th class="num">+Days</th><th>Status</th><th></th></tr>
+    ${list.map(c=>`<tr><td class="small nowrap">${h(c.RequestedAt)}</td><td><b>${nl(c.Description)}</b>${c.Reason?`<div class="small muted">${nl(c.Reason)}</div>`:''}${media(c.Attachments)}${c.OwnerRemarks?`<div class="small">Owner: ${nl(c.OwnerRemarks)}</div>`:''}</td>
+      <td class="num">${peso(c.Amount)}</td><td class="num">${h(c.AddDays||0)}</td><td>${badge(c.Status)}</td>
+      <td class="nowrap">${own&&c.Status==='Pending'?`<button class="btn sm green" onclick="coDecide('${c.COID}',true)">Approve</button> <button class="btn sm sec" onclick="coDecide('${c.COID}',false)">Reject</button>`:''}</td></tr>`).join('')}</table></div>`:'<div class="empty">No change orders.</div>'}`;
+}
+function coForm(pkgId){
+  openModal('Request change order', `<label>What is the change? *</label><textarea id="coDesc"></textarea>
+    <div class="f2"><div><label>Additional cost</label><input type="number" id="coAmt" step="any" value="0"></div><div><label>Additional days</label><input type="number" id="coDays" value="0"></div></div>
+    <label>Reason</label><textarea id="coWhy"></textarea><label>Attachments (quote, photos)</label>${fileField('coFiles','image/*,application/pdf',true)}`,
+    async()=>{ if(!$('coDesc').value.trim()) return toast('Describe the change.',true);
+      const f = await uploadField('coFiles',{type:'project',packageId:pkgId,kind:'Change orders'});
+      await act('Sending…',()=>api('api_requestCO',S.token,{PackageID:pkgId,Description:$('coDesc').value,Amount:$('coAmt').value,AddDays:$('coDays').value,Reason:$('coWhy').value,Attachments:f})); });
+}
+function coDecide(id, ok){ openModal(ok?'Approve change order':'Reject change order', `<label>Remarks</label><textarea id="cdR"></textarea>`, ()=>act('Saving…',()=>api('api_decideCO',S.token,id,ok,$('cdR').value)), ok?'Approve':'Reject', ok?'green':'red'); }
+
+/* — Turnover — */
+function turnoverTab(pk, st, own){
+  const t = byId('Turnover','PackageID',pk.PackageID);
+  const items = (D().turnoverItems._all||[]).concat(D().turnoverItems[pk.Trade]||[]);
+  if(own){
+    if(!t) return `<div class="empty">The contractor has not submitted the turnover checklist yet.</div>`;
+    return `<div class="card"><h3>Turnover checklist</h3><p class="small muted">Submitted ${h(t.SubmittedAt)}</p>
+      ${(t.Checklist||[]).map(c=>`<div class="chk">${c.done?'✅':'⬜'} ${h(c.item)}</div>`).join('')}${t.Notes?`<p class="small">${nl(t.Notes)}</p>`:''}
+      <h3 style="margin-top:12px">Documents & photos</h3>${media(t.Docs)||'<p class="small muted">None</p>'}</div>
+      ${pk.Status==='Turned Over'?`<div class="okbox">Turned over ${h(pk.TurnedOverAt)}${pk.WarrantyEnd?' · warranty until '+fmtD(pk.WarrantyEnd):''}</div>`
+        :`${st.openConcerns?`<div class="warnbox">Resolve the ${st.openConcerns} open concern(s) before turnover.</div>`:''}
+          <button class="btn green" onclick="turnOver('${pk.PackageID}')" ${st.openConcerns?'disabled':''}>✔ Turned Over – accept the work</button>`}`;
+  }
+  if(pk.Status==='Turned Over') return `<div class="okbox">The owner accepted the turnover on ${h(pk.TurnedOverAt)}. Thank you!</div>`;
+  const done = {}; (t&&t.Checklist||[]).forEach(c=>done[c.item]=c.done);
+  return `<div class="card"><h3>Turnover checklist</h3><p class="small muted">When the work is complete, tick the items, upload the documents and submit. The owner will inspect and click <b>Turned Over</b>.</p>
+    ${items.map(i=>`<label class="chk"><input type="checkbox" name="toItem" value="${h(i)}" ${done[i]?'checked':''}> ${h(i)}</label>`).join('')}
+    <label>Documents & completion photos (warranty, certificates, as-built…)</label>${fileField('toFiles','image/*,video/*,application/pdf',true)}${t?media(t.Docs):''}
+    <label>Notes</label><textarea id="toNotes">${h(t?t.Notes:'')}</textarea>
+    <div style="margin-top:12px"><button class="btn" onclick="submitTurnover('${pk.PackageID}')">${t?'Update':'Submit'} for turnover</button></div></div>`;
+}
+async function submitTurnover(pkgId){
+  const checks = [...document.querySelectorAll('input[name=toItem]')].map(x=>({item:x.value,done:x.checked}));
+  if(checks.some(c=>!c.done)) { if(!confirm('Some checklist items are not ticked. Submit anyway?')) return; }
+  const t = byId('Turnover','PackageID',pkgId);
+  const f = await uploadField('toFiles',{type:'project',packageId:pkgId,kind:'Turnover'});
+  await act('Submitting…',()=>api('api_submitTurnover',S.token,{PackageID:pkgId,Checklist:checks,Docs:(t&&t.Docs||[]).concat(f),Notes:$('toNotes').value}));
+  toast('Submitted. The owner was notified.');
+}
+function turnOver(pkgId){
+  openModal('Accept turnover', `<p>Confirm that the work for <b>${h(pkgOf(pkgId).Trade)}</b> is complete and accepted. The warranty period starts today.</p><label>Remarks (optional)</label><textarea id="tvR"></textarea>`,
+    ()=>act('Saving…',()=>api('api_turnOver',S.token,pkgId,$('tvR').value)), 'Turned Over','green');
+}
+
+/* ═════════════════ Modal ═════════════════ */
+function openModal(title, body, onOk, okLabel, okClass, wide){
+  const m = $('modal');
+  m.innerHTML = `<div class="box ${wide?'wide':''}"><div class="hd">${title}<button class="x" onclick="closeModal()">×</button></div><div class="bd">${body}</div>
+    <div class="ft">${onOk?`<button class="btn sec" onclick="closeModal()">Cancel</button><button class="btn ${okClass||''}" id="mOk">${h(okLabel||'Save')}</button>`:`<button class="btn" onclick="closeModal()">${h(okLabel||'Close')}</button>`}</div></div>`;
+  m.classList.remove('hidden');
+  if(onOk) $('mOk').onclick = async()=>{ $('mOk').disabled=true; try{ await onOk(); }catch(e){ if(e&&e.message&&!e._shown) toast(e.message,true); } finally{ if($('mOk')) $('mOk').disabled=false; } };
+}
+function closeModal(){ $('modal').classList.add('hidden'); $('modal').innerHTML=''; }
+
+/* ═════════════════ File uploads ═════════════════ */
+function fileField(id, accept, multiple){
+  return `<input type="file" id="${id}" accept="${accept}" ${multiple?'multiple':''} onchange="document.getElementById('${id}L').textContent=[...this.files].map(f=>f.name+' ('+(f.size/1048576).toFixed(1)+' MB)').join(', ')"><div class="filelist" id="${id}L"></div>`;
+}
+const SMALL = 4*1024*1024, CHUNK = 5*1024*1024; // CHUNK must be a multiple of 256 KB
+async function uploadField(id, ctx){
+  const files = [...($(id)&&$(id).files||[])]; const out = [];
+  for(let i=0;i<files.length;i++){
+    const blob = await prepareFile(files[i]);
+    busy(true, `Uploading ${i+1} of ${files.length}…`);
+    try{ out.push(await uploadOne(blob.blob, blob.name, ctx, p=>$('busyMsg').textContent=`Uploading ${i+1} of ${files.length}… ${Math.round(p)}%`)); }
+    finally{ busy(false); }
+  }
+  return out;
+}
+const b64 = blob => new Promise((ok,no)=>{ const r=new FileReader(); r.onload=()=>ok(String(r.result).split(',')[1]||''); r.onerror=()=>no(new Error('Could not read the file.')); r.readAsDataURL(blob); });
+async function uploadOne(blob, name, ctx, prog){
+  const mime = blob.type || 'application/octet-stream';
+  if(blob.size <= SMALL){ prog(30); const f = await api('api_uploadSmall',S.token,ctx,name,mime,await b64(blob)); prog(100); return f; }
+  const st = await api('api_uploadStart',S.token,ctx,name,mime,blob.size);
+  for(let pos=0; pos<blob.size; pos+=CHUNK){
+    const r = await api('api_uploadChunk',S.token,st.token,await b64(blob.slice(pos,pos+CHUNK)),pos);
+    prog(Math.min(99,(pos+CHUNK)/blob.size*100));
+    if(r.done) return r.file;
+  }
+  throw new Error('Upload did not finish.');
+}
+function prepareFile(file){ // photos resized to max 2048px
+  return new Promise(ok=>{
+    if(!/^image\/(jpeg|png|webp)$/i.test(file.type)) return ok({blob:file,name:file.name});
+    const img=new Image(), url=URL.createObjectURL(file);
+    img.onload=()=>{ try{ const max=2048, sc=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight)), c=document.createElement('canvas');
+      c.width=Math.round(img.naturalWidth*sc); c.height=Math.round(img.naturalHeight*sc); c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      c.toBlob(b=>{ URL.revokeObjectURL(url); ok(b&&b.size<file.size?{blob:b,name:file.name.replace(/\.[^.]+$/,'')+'.jpg'}:{blob:file,name:file.name}); },'image/jpeg',0.85);
+    }catch(e){ ok({blob:file,name:file.name}); } };
+    img.onerror=()=>ok({blob:file,name:file.name}); img.src=url;
+  });
+}
+
+start();
+</script>
+</body>
+</html>

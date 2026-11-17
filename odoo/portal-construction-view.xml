@@ -1,0 +1,32 @@
+<!--
+  Odoo 19 – show the Construction Monitoring app inside the portal (/my) for selected owners only.
+
+  How to add it (Odoo Online, no custom module needed):
+    1. Turn on Developer mode (Settings → scroll down → Activate the developer mode).
+    2. Settings → Technical → User Interface → Views → New.
+    3. View Name:      Suds Construction Monitoring (portal)
+       View Type:      QWeb
+       Inherited View: portal.portal_my_home        (shows as "My Portal")
+       Priority:       99
+    4. Paste everything between <data> and </data> below into "Architecture". Save.
+    5. Replace https://suds-construction.YOUR-SUBDOMAIN.workers.dev with your Cloudflare link.
+
+  Who sees it: portal users whose Contact has
+    • the tag  "Construction Owner"  AND
+    • a value in the Studio field  "Construction Key"  (technical name x_studio_construction_key).
+  If your Studio field got a different technical name, change it in the two places below.
+-->
+<data>
+  <xpath expr="//div[hasclass('o_portal_docs')]" position="before">
+    <t t-set="cm_partner" t-value="request.env.user.partner_id.sudo()"/>
+    <t t-set="cm_key" t-value="cm_partner.x_studio_construction_key"/>
+    <t t-if="cm_key and 'Construction Owner' in cm_partner.category_id.mapped('name')">
+      <div class="o_portal_construction mb-4">
+        <h3 class="mb-2">Construction Monitoring</h3>
+        <iframe t-attf-src="https://suds-construction.YOUR-SUBDOMAIN.workers.dev/?k={{ cm_key }}"
+                style="width:100%; height:85vh; border:1px solid #ECECEC; border-radius:12px; background:#FAFAF8"
+                allow="camera; clipboard-write" loading="lazy"></iframe>
+      </div>
+    </t>
+  </xpath>
+</data>
