@@ -99,7 +99,7 @@ function setup() {
   }
   if (!p.getProperty('ADMIN_PIN')) p.setProperty('ADMIN_PIN', String(Math.floor(100000 + Math.random() * 900000)));
   if (!p.getProperty('ADMIN_EMAIL')) p.setProperty('ADMIN_EMAIL', Session.getEffectiveUser().getEmail());
-  if (!p.getProperty('APP_URL')) p.setProperty('APP_URL', 'https://suds-construction.YOUR-SUBDOMAIN.workers.dev');
+  if (!p.getProperty('APP_URL')) p.setProperty('APP_URL', 'https://suds-construction.pages.dev');
   if (!p.getProperty('OWNER_URL')) p.setProperty('OWNER_URL', 'https://YOUR-COMPANY.odoo.com/my');
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'dailyJobs') ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('dailyJobs').timeBased().everyDays(1).atHour(8).create();

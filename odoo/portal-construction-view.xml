@@ -9,7 +9,7 @@
        Inherited View: portal.portal_my_home        (shows as "My Portal")
        Priority:       99
     4. Paste everything between <data> and </data> below into "Architecture". Save.
-    5. Replace https://suds-construction.YOUR-SUBDOMAIN.workers.dev with your Cloudflare link.
+    5. Replace https://suds-construction.pages.dev with your Cloudflare link.
 
   Who sees it: portal users whose Contact has
     • the tag  "Construction Owner"  AND
@@ -23,7 +23,7 @@
     <t t-if="cm_key and 'Construction Owner' in cm_partner.category_id.mapped('name')">
       <div class="o_portal_construction mb-4">
         <h3 class="mb-2">Construction Monitoring</h3>
-        <iframe t-attf-src="https://suds-construction.YOUR-SUBDOMAIN.workers.dev/?k={{ cm_key }}"
+        <iframe t-attf-src="https://suds-construction.pages.dev/?k={{ cm_key }}"
                 style="width:100%; height:85vh; border:1px solid #ECECEC; border-radius:12px; background:#FAFAF8"
                 allow="camera; clipboard-write" loading="lazy"></iframe>
       </div>
