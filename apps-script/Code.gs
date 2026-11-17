@@ -9,6 +9,21 @@
  */
 
 // ───────────────────────── Settings ─────────────────────────
+// Supplier documents, uploaded one by one. "required" ones are checked before awarding.
+var SUPPLIER_DOCS = [
+  { name: "Business / Mayor's Permit", required: true },
+  { name: 'DTI or SEC Registration', required: true },
+  { name: 'BIR Certificate of Registration (Form 2303)', required: true },
+  { name: 'Valid ID of owner / authorized representative', required: true },
+  { name: 'PCAB License (for contractors)', required: false },
+  { name: 'Company profile / previous projects', required: false },
+  { name: 'Other documents', required: false }
+];
+function missingDocs_(s) {
+  var docs = s && s.Docs || [];
+  return SUPPLIER_DOCS.filter(function (d) { return d.required && !docs.some(function (f) { return f.type === d.name; }); })
+    .map(function (d) { return d.name; });
+}
 var VAT_TYPES = ['VAT Inclusive', 'VAT Exclusive', 'Non-VAT'];
 var VAT_RATE = 0.12;
 var TRADES = ['General Contractor', 'CCTV', 'WiFi / Network', 'Fire Sprinkler', 'Smoke Detector / Fire Alarm',
@@ -321,7 +336,8 @@ function api_data(token) {
   ['Owners', 'Suppliers', 'Projects', 'Packages', 'Invitations', 'Quotes', 'Payments', 'PayRequests', 'Mobilization',
    'Milestones', 'Updates', 'Concerns', 'ChangeOrders', 'Turnover'].forEach(function (n) { all[n] = rows_(n).map(clean_); });
 
-  var out = { me: me, trades: TRADES, turnoverItems: TURNOVER_ITEMS, today: today_() };
+  var out = { me: me, trades: TRADES, turnoverItems: TURNOVER_ITEMS, docTypes: SUPPLIER_DOCS, today: today_() };
+  all.Suppliers.forEach(function (s) { s.MissingDocs = missingDocs_(s); });
   if (me.role === 'admin') {
     Object.keys(all).forEach(function (k) { out[k] = all[k]; });
     out.Owners = rows_('Owners').map(function (o) { var c = clean_(o); c.OdooKey = o.OdooKey; return c; });
@@ -329,7 +345,8 @@ function api_data(token) {
   }
   var byProj, byPkg, supplierBasic = function (s) {
     return { SupplierID: s.SupplierID, Company: s.Company, ContactPerson: s.ContactPerson, Mobile: s.Mobile,
-             Email: s.Email, Trades: s.Trades, Status: s.Status, AccreditedAt: s.AccreditedAt, Address: s.Address };
+             Email: s.Email, Trades: s.Trades, Status: s.Status, AccreditedAt: s.AccreditedAt, Address: s.Address,
+             Docs: s.Docs, MissingDocs: s.MissingDocs };
   };
   if (me.role === 'owner') {
     var pids = {};
@@ -454,8 +471,25 @@ function api_saveSupplierProfile(token, d) {
   var patch = {};
   ['Company', 'ContactPerson', 'Mobile', 'TIN', 'Address', 'BankName', 'AccountNo', 'AccountName'].forEach(function (k) { if (d[k] !== undefined) patch[k] = str_(d[k], 500); });
   if (d.Trades) patch.Trades = d.Trades.filter(function (t) { return TRADES.indexOf(t) >= 0; });
-  if (d.Docs) patch.Docs = d.Docs;
+  if (d.Docs) patch.Docs = d.Docs.map(function (f) {
+    var t = SUPPLIER_DOCS.some(function (x) { return x.name === f.type; }) ? f.type : 'Other documents';
+    return { id: str_(f.id, 100), name: str_(f.name, 200), mime: str_(f.mime, 100), url: str_(f.url, 500), type: t, at: str_(f.at, 20) || now_() };
+  });
   return clean_(update_('Suppliers', id, patch));
+}
+function api_remindSupplierDocs(token, supplierId) {
+  var me = auth_(token, ['admin', 'owner']);
+  var s = find_('Suppliers', supplierId); if (!s) throw new Error('Supplier not found.');
+  if (me.role === 'owner') {
+    var mine = rows_('Projects').filter(function (p) { return String(p.OwnerID) === String(me.id); }).map(function (p) { return p.ProjectID; });
+    if (!rows_('Invitations').some(function (i) { return i.SupplierID === supplierId && mine.indexOf(i.ProjectID) >= 0; })) throw new Error('Not allowed.');
+  }
+  var miss = missingDocs_(s);
+  if (!miss.length) throw new Error('This supplier already uploaded all required documents.');
+  mail_(s.Email, 'Please upload your company documents', box_('Documents needed',
+    '<p>Hi ' + esc_(s.ContactPerson || s.Company) + ',</p><p>Before the project can be awarded / started, please upload these documents in the supplier portal:</p><ul>' +
+    miss.map(function (m) { return '<li><b>' + esc_(m) + '</b></li>'; }).join('') + '</ul>' + btn_('Upload documents')), supplierId);
+  return { sent: true, missing: miss };
 }
 function api_saveOwner(token, d) {
   auth_(token, ['admin']);
@@ -742,6 +776,7 @@ function api_award(token, packageId, quoteId, opts) {
               ['Documents you will provide', (q.DocsToProvide || []).join(', ')], ['Downpayment', opts.dpRequired ? 'Yes – you will be notified once it is sent' : 'None'],
               ['Retention', num_(opts.retentionPct) ? num_(opts.retentionPct) + '% until turnover' : 'None'],
               ['Required progress updates', schedText_(pkg_(packageId))]]) +
+      (missingDocs_(win).length ? '<p style="color:#D93B3B"><b>Please upload these missing documents in the portal:</b> ' + esc_(missingDocs_(win).join(', ')) + '</p>' : '') +
       '<p><b>Next step:</b> ' + (opts.dpRequired ? 'wait for the downpayment, then submit your mobilization details in the portal.'
                                                  : 'log in and submit your mobilization date, manpower and materials.') + '</p>' + btn_('Open supplier portal')), quoteId);
     // regret notices to everyone else who quoted

@@ -423,9 +423,14 @@ function supplierHome(){
       ${P.Status==='Pending'?'<p class="muted">SPFC is reviewing your registration. Upload your documents below to speed it up.</p>':''}
       ${P.Remarks?`<p>Remarks: ${nl(P.Remarks)}</p>`:''}</div>`;
   }
-  out += `<div class="card"><div class="row"><h3>Company documents</h3><span class="spacer"></span>
-    <button class="btn sm sec" onclick="uploadSupplierDocs()">Upload documents</button><button class="btn sm sec" onclick="editProfile()">Edit profile</button></div>
-    <p class="muted small">Business permit, DTI/SEC, BIR 2303, and other permits.</p>${media(docs)||'<p class="muted small">No documents yet.</p>'}</div>`;
+  const miss = missingDocsOf(P);
+  out += `<div class="card"><div class="row"><h3 style="margin:0">Company documents</h3>${miss.length?`<span class="badge b-red">${miss.length} required missing</span>`:'<span class="badge b-green">Complete</span>'}<span class="spacer"></span>
+    <button class="btn sm sec" onclick="editProfile()">Edit profile</button></div>
+    <p class="muted small">Upload each document separately. Items marked * are required before a project can be awarded to you.</p>
+    <div class="tw"><table>${D().docTypes.map(dt=>{ const files = docs.filter(f=>(f.type||'Other documents')===dt.name);
+      return `<tr><td style="width:40%"><b>${h(dt.name)}</b>${dt.required?' <span style="color:var(--red)">*</span>':''}<div class="small">${files.length?'<span style="color:var(--green)">✓ Uploaded</span>':dt.required?'<span style="color:var(--red)">Missing</span>':'<span class="muted">Optional</span>'}</div></td>
+        <td>${files.length?`<div class="media" style="margin:0">${files.map(f=>`<div style="position:relative">${media([f]).replace('<div class="media">','').replace(/<\/div>$/,'')}<button title="Remove" onclick="removeSupDoc('${h(f.id)}')" style="position:absolute;top:-6px;right:-6px;border:0;background:var(--red);color:#fff;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:12px">×</button></div>`).join('')}</div>`:''}</td>
+        <td class="right nowrap"><button class="btn sm ${files.length?'sec':''}" onclick="uploadSupplierDocs('${h(dt.name).replace(/'/g,'&#39;')}')">${files.length?'+ Add / replace':'⬆ Upload'}</button></td></tr>`; }).join('')}</table></div></div>`;
   const open = where('Invitations',i=>['Invited','Viewed'].includes(i.Status));
   if(P.Status!=='Accredited' && !open.length && !(D().Quotes||[]).length) return out;
   const groups = {};
@@ -485,11 +490,23 @@ function editProfile(){
     ()=>act('Saving…',()=>api('api_saveSupplierProfile',S.token,{Company:$('pfCompany').value,ContactPerson:$('pfContact').value,Mobile:$('pfMobile').value,TIN:$('pfTin').value,Address:$('pfAddr').value,BankName:$('pfBank').value,AccountNo:$('pfAcctNo').value,AccountName:$('pfAcctName').value,
       Trades:[...document.querySelectorAll('input[name=pfTrade]:checked')].map(x=>x.value)})));
 }
-function uploadSupplierDocs(){
-  openModal('Upload company documents', `<p class="muted small">PDF or photos. You can upload several files at once.</p>${fileField('sdFiles','image/*,application/pdf',true)}`,
-    async()=>{ const files = await uploadField('sdFiles',{type:'supplier'}); if(!files.length) return toast('Choose a file first.',true);
-      await act('Saving…',()=>api('api_saveSupplierProfile',S.token,{Docs:(D().Profile.Docs||[]).concat(files)})); });
+function missingDocsOf(sp){ const docs = (sp&&sp.Docs)||[]; return (D().docTypes||[]).filter(d=>d.required && !docs.some(f=>f.type===d.name)).map(d=>d.name); }
+function uploadSupplierDocs(type){
+  openModal(`Upload: ${h(type)}`, `<p class="muted small">PDF or photo. If the document has several pages, you can select several files.</p>${fileField('sdFiles','image/*,application/pdf',true)}`,
+    async()=>{ if(!$('sdFiles').files.length) return toast('Choose a file first.',true);
+      const files = (await uploadField('sdFiles',{type:'supplier'})).map(f=>Object.assign(f,{type}));
+      await act('Saving…',()=>api('api_saveSupplierProfile',S.token,{Docs:(D().Profile.Docs||[]).concat(files)})); toast('Uploaded.'); });
 }
+function removeSupDoc(id){
+  openModal('Remove file', '<p>Remove this file from your documents?</p>',
+    ()=>act('Saving…',()=>api('api_saveSupplierProfile',S.token,{Docs:(D().Profile.Docs||[]).filter(f=>f.id!==id)})), 'Remove','red');
+}
+function docsChecklist(sp){
+  return `<div class="tw"><table>${(D().docTypes||[]).map(dt=>{ const files=(sp.Docs||[]).filter(f=>(f.type||'Other documents')===dt.name);
+    return `<tr><td>${files.length?'✅':dt.required?'❌':'➖'} <b>${h(dt.name)}</b>${dt.required?'':' <span class="muted small">(optional)</span>'}</td><td>${media(files)}</td></tr>`; }).join('')}</table></div>`;
+}
+function viewSupDocs(id){ const sp = sup(id); openModal(`Documents – ${h(sp.Company)}`, docsChecklist(sp), null, 'Close', '', true); }
+async function remindDocs(id){ await run('Sending…',()=>api('api_remindSupplierDocs',S.token,id)); toast('Reminder sent to the supplier.'); }
 async function declineInvite(id){
   openModal('Decline invitation', `<label>Reason (optional)</label><textarea id="dcReason" placeholder="e.g. fully booked, out of area"></textarea>`,
     ()=>act('Sending…',()=>api('api_declineInvite',S.token,id,$('dcReason').value)), 'Decline', 'red');
@@ -597,7 +614,7 @@ function adminHome(){
     const list = (D().Suppliers||[]).slice().sort((a,b)=>(a.Status==='Pending'?0:1)-(b.Status==='Pending'?0:1)||String(a.Company).localeCompare(b.Company));
     body = list.length?`<div class="tw"><table><tr><th>Company</th><th>Trades</th><th>Contact</th><th>Docs</th><th>Status</th><th></th></tr>
       ${list.map(s=>`<tr><td><b>${h(s.Company)}</b><div class="small muted">TIN ${h(s.TIN||'—')} · ${h(s.Address)}</div></td><td class="small">${h((s.Trades||[]).join(', '))}</td>
-        <td class="small">${h(s.ContactPerson)}<br>${h(s.Mobile)}<br>${h(s.Email)}</td><td>${media(s.Docs)||'<span class="muted small">none</span>'}</td><td>${badge(s.Status)}</td>
+        <td class="small">${h(s.ContactPerson)}<br>${h(s.Mobile)}<br>${h(s.Email)}</td><td>${(s.MissingDocs||[]).length?`<span class="badge b-red">${s.MissingDocs.length} missing</span>`:'<span class="badge b-green">Complete</span>'}<br><button class="btn sm sec" style="margin-top:4px" onclick="viewSupDocs('${s.SupplierID}')">View documents</button></td><td>${badge(s.Status)}</td>
         <td class="nowrap">${s.Status!=='Accredited'?`<button class="btn sm green" onclick="setSup('${s.SupplierID}','Accredited')">Accredit</button>`:''}
         ${s.Status!=='Rejected'&&s.Status!=='Suspended'?`<button class="btn sm sec" onclick="setSup('${s.SupplierID}','${s.Status==='Accredited'?'Suspended':'Rejected'}')">${s.Status==='Accredited'?'Suspend':'Reject'}</button>`:''}</td></tr>`).join('')}</table></div>`:'<div class="empty">No suppliers registered yet. Share the portal link with your contractors so they can register.</div>';
   } else {
@@ -746,7 +763,8 @@ function quotingSection(pk){
        <button class="btn sm green" onclick="awardForm('${q.QuoteID}')">Award</button>`
       : q ? `<button class="btn sm sec" onclick="viewQuote('${q.QuoteID}')">View</button>`
       : ['Invited','Viewed','Expired'].includes(i.Status) ? `<button class="btn sm sec" onclick="extendInvite('${i.InviteID}')">Extend deadline</button>` : '';
-    const who = i.SupplierID ? `<b>${h(s.Company)}</b><div class="small muted">${h(s.ContactPerson)} · ${h(s.Mobile)}</div>`
+    const who = i.SupplierID ? `<b>${h(s.Company)}</b><div class="small muted">${h(s.ContactPerson)} · ${h(s.Mobile)}</div>
+        <a href="#" class="small" onclick="viewSupDocs('${i.SupplierID}');return false">${(s.MissingDocs||[]).length?`<span class="badge b-red">Docs incomplete (${s.MissingDocs.length})</span>`:'<span class="badge b-green">Docs complete</span>'}</a>`
       : `<b>${h(i.SupplierName||i.SupplierEmail)}</b><div class="small muted">${h(i.SupplierEmail)}</div><span class="badge b-amber">Not registered yet</span>`;
     return `<tr><td>${who}</td><td>${badge(i.Status)}${i.DeclineReason?`<div class="small muted">${h(i.DeclineReason)}</div>`:''}</td>
       <td class="small nowrap">${fmtD(i.Deadline)}</td><td class="num">${q?peso(q.Total)+(q.VatType?`<div class="small muted">${h(q.VatType)}</div>`:''):'—'}</td><td class="num">${q?h(q.DurationDays)+' days':'—'}</td>
@@ -835,7 +853,13 @@ function quoteAct(qid, action){
 function awardForm(qid){
   const q = byId('Quotes','QuoteID',qid), s = sup(q.SupplierID), pk = pkgOf(q.PackageID);
   const others = where('Quotes',x=>x.PackageID===q.PackageID&&x.SupplierID!==q.SupplierID&&!['Superseded','Declined'].includes(x.Status)).length;
+  const miss = s.MissingDocs || [];
   openModal(`Award ${h(pk.Trade)}`, `<p>Award to <b>${h(s.Company)}</b>?</p>
+    ${miss.length?`<div class="warnbox" style="color:var(--ink)"><b style="color:var(--red)">⚠ This supplier still has ${miss.length} pending document upload${miss.length>1?'s':''}:</b>
+      <ul style="margin:6px 0 6px 18px;padding:0">${miss.map(m=>`<li>${h(m)}</li>`).join('')}</ul>
+      <div class="row"><button class="btn sm sec" onclick="remindDocs('${q.SupplierID}')">✉ Remind supplier to upload</button><button class="btn sm sec" onclick="viewSupDocs('${q.SupplierID}')">View documents</button></div>
+      <p class="small" style="margin:6px 0 0">You can wait for the documents, or award now. If you award now, the award email also asks them to upload these.</p></div>`:''}
+    ${s.Status&&s.Status!=='Accredited'?`<div class="infobox">Accreditation status: <b>${h(s.Status)}</b> (not yet accredited by SPFC).</div>`:''}
     ${!truthy(q.IsFinal)&&q.Status!=='Accepted'?'<div class="infobox">This quote is not marked final or accepted yet. You can still award it.</div>':''}
     <div class="f2"><div><label>Contract amount</label><input type="number" id="awAmt" step="any" value="${num(q.Total)}"></div><div><label>Retention % (held until turnover)</label><input type="number" id="awRet" value="0" min="0" max="20"></div></div>
     <p class="small muted">Payment terms quoted: ${h(q.PaymentTerms||'—')}</p>
@@ -843,7 +867,7 @@ function awardForm(qid){
     <h3 style="margin-top:16px">Progress updates from the contractor</h3>${schedFields({UpdateFreq: pk.Trade==='General Contractor'?'Weekly':'One time', UpdateDay:'Friday'})}
     ${others?`<label>Note to the ${others} other supplier(s) (optional)</label><input type="text" id="awRegret" placeholder="e.g. price was above our budget"><p class="small muted">They'll get a thank-you email. The winner and price are not shown.</p>`:''}`,
     ()=>{ const sc = readSched(); if(sc.freq==='One time'&&!sc.dueDate) return toast('Set the due date of the one-time update.',true);
-      return act('Awarding…',()=>api('api_award',S.token,q.PackageID,qid,{amount:$('awAmt').value,retentionPct:$('awRet').value,dpRequired:$('awDp').checked,regretRemark:$('awRegret')?$('awRegret').value:'',schedule:sc})); }, 'Award','green');
+      return act('Awarding…',()=>api('api_award',S.token,q.PackageID,qid,{amount:$('awAmt').value,retentionPct:$('awRet').value,dpRequired:$('awDp').checked,regretRemark:$('awRegret')?$('awRegret').value:'',schedule:sc})); }, miss.length?'Award anyway':'Award', miss.length?'red':'green');
 }
 
 /* — Overview / mobilization — */
