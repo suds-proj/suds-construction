@@ -157,10 +157,13 @@ function api(fn, ...args){
   const withData = !/^api_(upload|data$|inviteViewed)/.test(fn);
   return (NO_TOKEN.test(fn) ? Promise.resolve() : S.ready).then(()=>{
     if(!NO_TOKEN.test(fn)) args[0] = S.token;
-    return fetch(url,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({fn,args,withData})});
+    const ctl = new AbortController(), tm = setTimeout(()=>ctl.abort(), /^api_upload/.test(fn) ? 180000 : 120000);
+    return fetch(url,{method:'POST',redirect:'follow',signal:ctl.signal,headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({fn,args,withData})})
+      .finally(()=>clearTimeout(tm))
+      .catch(e=>{ throw new Error(e.name==='AbortError' ? 'The connection timed out.' : 'Network problem – please check your internet.'); });
   })
-    .then(r=>{ if(!r.ok) throw new Error('Network error ('+r.status+')'); return r.json(); })
-    .then(r=>{ if(!r.ok){ if(r.error==='SESSION_EXPIRED'){ sessionExpired(); } throw new Error(r.error==='SESSION_EXPIRED'?'Your session expired. Please log in again.':r.error); }
+    .then(r=>{ if(!r.ok) throw new Error('Network error ('+r.status+')'); return r.json().catch(()=>{ throw new Error('Google is busy – please try again.'); }); })
+    .then(r=>{ if(!r.ok){ if(r.error==='SESSION_EXPIRED'){ sessionExpired(); } const e=new Error(r.error==='SESSION_EXPIRED'?'Your session expired. Please log in again.':r.error); e.app=true; throw e; }
       if(r.fresh) S.fresh = r.fresh; return r.data; });
 }
 /* Loading box with a % bar. Real progress (uploads) moves it forward; while waiting for Google it creeps slowly toward the next step. */
@@ -434,7 +437,7 @@ function supplierHome(){
     return `<div class="card"><div class="row"><h3 style="margin:0">${h(pr.Name)}${pr.Branch?' – '+h(pr.Branch):''}</h3><span class="spacer"></span><span class="small muted">Quote due ${fmtD(dl)}</span></div>
       <div class="muted small">${h(pr.Address)}${pr.StartDate?' · construction start '+fmtD(pr.StartDate):''}</div>${siteInfo(pr)}
       ${brief?`<p class="small"><b>Brief:</b> ${nl(brief.Brief)}</p>`:''}
-      <h3 style="margin-top:12px">Plans & documents</h3>${media((pr.Plans||[]).concat(atts))||'<p class="small muted">No plans attached.</p>'}
+      <h3 style="margin-top:12px">Plans & documents shared with you</h3>${media(atts)||'<p class="small muted">No plans attached.</p>'}
       <h3 style="margin-top:14px">Package(s) to quote</h3>
       <div class="tw"><table>${list.map(i=>{ const pk=pkgOf(i.PackageID), late=i.Deadline<D().today;
         return `<tr><td><span class="pill">${h(pk.Trade)}</span> ${badge(i.Status)}${pk.Scope?`<div class="small" style="margin-top:4px">${nl(pk.Scope)}</div>`:''}</td>
@@ -766,8 +769,9 @@ function inviteForm(pid, prePkg){
       ${acc.map(s=>`<label class="chk"><input type="checkbox" name="ivSup" value="${s.SupplierID}"> <span><b>${h(s.Company)}</b> <span class="muted small">${h((s.Trades||[]).join(', '))} · ${h(s.Email)}</span></span></label>`).join('')}</details>`:''}
     <label>2. Tick the package(s) they will quote *</label>
     ${pks.map(p=>`<label class="chk"><input type="checkbox" name="ivPkg" value="${p.PackageID}" ${p.PackageID===prePkg?'checked':''}> <span><b>${h(p.Trade)}</b> ${p.Scope?`<span class="muted small">– ${h(p.Scope)}</span>`:''}</span></label>`).join('')}
-    <label>3. Plans to share</label>
-    ${plans.length?`<label class="chk"><input type="checkbox" id="ivPlans" checked> <span>Include the project plans (${plans.length} file(s)): ${plans.map(f=>h(f.name)).join(', ')}</span></label>`
+    <label>3. Tick the plans to share with this supplier</label>
+    ${plans.length?`<div class="row small" style="margin-bottom:2px"><a href="#" onclick="document.querySelectorAll('input[name=ivPlan]').forEach(x=>x.checked=true);return false">Select all</a> · <a href="#" onclick="document.querySelectorAll('input[name=ivPlan]').forEach(x=>x.checked=false);return false">None</a></div>
+      ${plans.map(f=>`<label class="chk"><input type="checkbox" name="ivPlan" value="${h(f.id)}"> <span>${/^image\//.test(f.mime||'')?'🖼️':'📄'} <a href="${h(f.url)}" target="_blank" rel="noopener">${h(f.name)}</a></span></label>`).join('')}`
       :`<p class="small muted" style="margin:0">No project plans uploaded yet. You can add files here, or close this and use <b>Upload plans</b>.</p>`}
     <label class="small" style="font-weight:400">Additional files for this invitation</label>${fileField('ivFiles','image/*,application/pdf,.dwg,.dxf,.zip',true)}
     <label>4. Brief / instructions</label><textarea id="ivBrief" placeholder="e.g. Please include materials and labor. Quote per item."></textarea>
@@ -782,7 +786,7 @@ function inviteForm(pid, prePkg){
       if(!pkIds.length) return toast('Tick at least one package.',true);
       const att = await uploadField('ivFiles',{type:'project',projectId:pid,kind:'Invitation files'});
       const brief = $('ivBrief').value + ($('ivVisit').value?`\nSite visit: ${$('ivVisit').value}`:'');
-      await act('Sending invitations…',()=>api('api_inviteProject',S.token,pid,{packageIds:pkIds,supplierIds:ids,emails,brief,deadline:$('ivDl').value,attachments:att,includePlans:$('ivPlans')?$('ivPlans').checked:true}));
+      await act('Sending invitations…',()=>api('api_inviteProject',S.token,pid,{packageIds:pkIds,supplierIds:ids,emails,brief,deadline:$('ivDl').value,attachments:att,planIds:[...document.querySelectorAll('input[name=ivPlan]:checked')].map(x=>x.value)}));
       toast('Invitation sent.'); }, 'Send invitation','',true);
 }
 function extendInvite(id){ openModal('Extend quote deadline', `<label>New deadline</label><input type="date" id="exDl">`, ()=>act('Saving…',()=>api('api_extendInvite',S.token,id,$('exDl').value))); }
@@ -825,6 +829,7 @@ function overviewTab(pk, st, own){
       ${!own&&!['For Turnover','Turned Over'].includes(pk.Status)?`<button class="btn sm sec" style="margin-top:8px" onclick="mobForm('${pk.PackageID}')">Edit mobilization</button>`:''}`;
   else if(dpNeeded && !dpSent) mobBox = `<div class="infobox">${own?'Waiting for you to send the downpayment (go to <b>Payments</b> → Record payment). The contractor will then submit the mobilization schedule.':'Waiting for the owner to send the downpayment. You can submit mobilization details after that.'}</div>`;
   else mobBox = own ? `<div class="infobox">Waiting for the contractor to submit the mobilization schedule.</div>` : `<div class="infobox">Please submit your mobilization date, manpower and materials.</div><button class="btn" onclick="mobForm('${pk.PackageID}')">Submit mobilization</button>`;
+  const shared = []; if(!own) where('Invitations',i=>i.ProjectID===pk.ProjectID).forEach(i=>(i.Attachments||[]).forEach(f=>{ if(!shared.some(x=>x.id===f.id)) shared.push(f); }));
   const sc = st.sched||{};
   const schedBox = `<div class="card"><div class="row"><h3 style="margin:0">Required progress updates</h3><span class="spacer"></span>${own&&pk.Status!=='Turned Over'?`<button class="btn sm sec" onclick="schedForm('${pk.PackageID}')">Change</button>`:''}</div>
     <p style="margin:8px 0 4px"><b>${h(schedText(pk))}</b></p>${pk.UpdateNote?`<p class="small">Include: ${h(pk.UpdateNote)}</p>`:''}
@@ -838,6 +843,7 @@ function overviewTab(pk, st, own){
       ${q?`<p><b>Payment terms:</b> ${h(q.PaymentTerms||'—')} · <b>Warranty:</b> ${h(q.WarrantyMonths||0)} months</p><button class="btn sm sec" onclick="viewQuote('${q.QuoteID}')">View awarded quote</button>`:''}
       ${own&&!where('Payments',p=>p.PackageID===pk.PackageID).length?` <button class="btn sm sec" onclick="cancelAward('${pk.PackageID}')">Cancel award</button>`:''}
       ${pk.TurnedOverAt?`<p class="okbox">Turned over ${h(pk.TurnedOverAt)}${pk.WarrantyEnd?' · warranty until '+fmtD(pk.WarrantyEnd):''}</p>`:''}</div></div></div>
+    ${shared.length?`<div class="card"><h3>Plans & documents shared with you</h3>${media(shared)}</div>`:''}
     ${st.ups[0]?`<h2>Latest update</h2>${updateItem(st.ups[0])}`:''}`;
 }
 function mobForm(pkgId){
@@ -1051,37 +1057,64 @@ function closeModal(){ $('modal').classList.add('hidden'); $('modal').innerHTML=
 function fileField(id, accept, multiple){
   return `<input type="file" id="${id}" accept="${accept}" ${multiple?'multiple':''} onchange="document.getElementById('${id}L').textContent=[...this.files].map(f=>f.name+' ('+(f.size/1048576).toFixed(1)+' MB)').join(', ')"><div class="filelist" id="${id}L"></div>`;
 }
-const SMALL = 4*1024*1024, CHUNK = 5*1024*1024; // CHUNK must be a multiple of 256 KB
+const SMALL = 4*1024*1024, CHUNK = 8*1024*1024; // CHUNK must be a multiple of 256 KB
+const mb = n => (n/1048576).toFixed(n<10485760?1:0);
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+// Retry a request up to 3 times when the connection drops (not when the app itself says no).
+async function retry(fn, onRetry){
+  for(let i=1;;i++){
+    try{ return await fn(); }
+    catch(e){ if(e.app || i>=3) throw e; if(onRetry) onRetry(i); await sleep(2000*i); }
+  }
+}
+/* Uploads up to 3 files at the same time. The bar follows the MB actually sent, with time left. */
 async function uploadField(id, ctx){
-  const files = [...($(id)&&$(id).files||[])]; const out = [];
-  if(!files.length) return out;
-  busyStart(`Uploading ${files.length} file${files.length>1?'s':''}…`, 'Preparing…'); let ok=false;
+  const files = [...($(id)&&$(id).files||[])];
+  if(!files.length) return [];
+  const n = files.length;
+  busyStart(`Uploading ${n} file${n>1?'s':''}…`, 'Preparing files…'); let ok=false;
   try{
     const prepped = []; for(const f of files) prepped.push(await prepareFile(f));
-    // each file's share of the bar = its size (+ a minimum share so small files still move the bar)
-    const bytes = prepped.reduce((a,x)=>a+x.blob.size,0) || 1;
-    const w = prepped.map(x=>x.blob.size + bytes*0.15/prepped.length), total = w.reduce((a,x)=>a+x,0); let done = 0;
-    for(let i=0;i<prepped.length;i++){
-      const {blob,name} = prepped[i], start = done/total*100, span = w[i]/total*100;
-      const sub = `File ${i+1} of ${prepped.length}: ${name} (${(blob.size/1048576).toFixed(1)} MB)`;
-      busySet(start, start+span*0.95, null, sub);
-      out.push(await uploadOne(blob, name, ctx, frac=>busySet(start+span*frac, start+span*Math.min(1,frac+0.25)*0.98, null, sub)));
-      done += w[i]; busySet(done/total*100, done/total*100);
-    }
+    const total = prepped.reduce((a,x)=>a+x.blob.size,0) || 1;
+    const t0 = Date.now(); let sent = 0, finished = 0, note = '';
+    const inflight = new Map(); // index -> bytes still to send for files in progress
+    const show = () => {
+      const pct = sent/total*100, secs = (Date.now()-t0)/1000, speed = sent/Math.max(1,secs);
+      const left = sent>0 && secs>3 ? Math.round((total-sent)/speed) : null;
+      const pending = [...inflight.values()].reduce((a,x)=>a+Math.min(x,CHUNK),0); // only the piece being sent now
+      busySet(pct, Math.min(99, (sent+pending*0.9)/total*100), `Uploading ${finished} of ${n} file${n>1?'s':''} done`,
+        `${mb(sent)} of ${mb(total)} MB sent` + (left!=null ? ` · about ${left>90?Math.ceil(left/60)+' min':left+' sec'} left` : '') + note);
+    };
+    const tick = setInterval(show, 1000);
+    const out = new Array(n); let next = 0;
+    const worker = async () => {
+      while(next < n){
+        const i = next++, {blob,name} = prepped[i];
+        inflight.set(i, blob.size); show();
+        out[i] = await uploadOne(blob, name, ctx, bytes=>{ sent += bytes; inflight.set(i, Math.max(0, inflight.get(i)-bytes)); note=''; show(); },
+                                 k=>{ note = ` · connection slow, retrying (${k})…`; show(); });
+        inflight.delete(i); finished++; show();
+      }
+    };
+    try{ await Promise.all([worker(), worker(), worker()]); } finally { clearInterval(tick); }
     ok=true; return out;
   } finally { busyEnd(ok); }
 }
 const b64 = blob => new Promise((ok,no)=>{ const r=new FileReader(); r.onload=()=>ok(String(r.result).split(',')[1]||''); r.onerror=()=>no(new Error('Could not read the file.')); r.readAsDataURL(blob); });
-async function uploadOne(blob, name, ctx, prog){
+async function uploadOne(blob, name, ctx, onBytes, onRetry){
   const mime = blob.type || 'application/octet-stream';
-  if(blob.size <= SMALL){ prog(0.05); const f = await api('api_uploadSmall',S.token,ctx,name,mime,await b64(blob)); prog(1); return f; }
-  const st = await api('api_uploadStart',S.token,ctx,name,mime,blob.size);
+  if(blob.size <= SMALL){
+    const data = await b64(blob);
+    const f = await retry(()=>api('api_uploadSmall',S.token,ctx,name,mime,data), onRetry); onBytes(blob.size); return f;
+  }
+  const st = await retry(()=>api('api_uploadStart',S.token,ctx,name,mime,blob.size), onRetry);
   for(let pos=0; pos<blob.size; pos+=CHUNK){
-    const r = await api('api_uploadChunk',S.token,st.token,await b64(blob.slice(pos,pos+CHUNK)),pos);
-    prog(Math.min(1,(pos+CHUNK)/blob.size));
+    const part = blob.slice(pos,pos+CHUNK), data = await b64(part);
+    const r = await retry(()=>api('api_uploadChunk',S.token,st.token,data,pos), onRetry);
+    onBytes(part.size);
     if(r.done) return r.file;
   }
-  throw new Error('Upload did not finish.');
+  throw new Error('Upload did not finish – please try again.');
 }
 function prepareFile(file){ // photos resized to max 2048px
   return new Promise(ok=>{

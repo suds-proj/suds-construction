@@ -356,7 +356,7 @@ function api_data(token) {
   var seeProj = {}; out.Packages.forEach(function (p) { seeProj[p.ProjectID] = 1; });
   out.Projects = all.Projects.filter(function (p) { return seeProj[p.ProjectID]; }).map(function (p) {
     return { ProjectID: p.ProjectID, Name: p.Name, Branch: p.Branch, Address: p.Address, StartDate: p.StartDate, Status: p.Status,
-             TargetOpening: p.TargetOpening, Plans: p.Plans || [], MapLink: p.MapLink, SiteContact: p.SiteContact, SiteMobile: p.SiteMobile };
+             TargetOpening: p.TargetOpening, MapLink: p.MapLink, SiteContact: p.SiteContact, SiteMobile: p.SiteMobile };
   });
   byPkg = function (r) { return awarded[r.PackageID]; };
   ['Payments', 'PayRequests', 'Mobilization', 'Milestones', 'Updates', 'Concerns', 'ChangeOrders', 'Turnover']
@@ -516,7 +516,7 @@ function api_savePackage(token, d) {
 
 // ───────────────────────── Invitations ─────────────────────────
 // Invite suppliers (registered or just an email) to quote one or more packages of a project.
-// d = { packageIds:[], supplierIds:[], emails:[{email,name}], brief, deadline, attachments:[], includePlans:true }
+// d = { packageIds:[], supplierIds:[], emails:[{email,name}], brief, deadline, attachments:[], planIds:[] (only these plans are shared) }
 function api_inviteProject(token, projectId, d) {
   var me = auth_(token, ['admin', 'owner']);
   needOwner_(me, projectId);
@@ -541,7 +541,9 @@ function api_inviteProject(token, projectId, d) {
     });
     var list = Object.keys(targets).map(function (k) { return targets[k]; });
     if (!list.length) throw new Error('Please enter a supplier email or choose a supplier.');
-    var att = d.attachments || [], plans = d.includePlans === false ? [] : (pr.Plans || []);
+    var pick = (d.planIds || []).map(String);
+    var plans = (pr.Plans || []).filter(function (f) { return pick.indexOf(String(f.id)) >= 0; });
+    var att = plans.concat(d.attachments || []);   // the invitation keeps exactly what was shared
     var made = [];
     list.forEach(function (t) {
       var newPk = [];
@@ -561,7 +563,7 @@ function api_inviteProject(token, projectId, d) {
       if (!newPk.length) return;
       var appUrl = props_().getProperty('APP_URL') || '#';
       var link = t.sup ? appUrl : appUrl + (appUrl.indexOf('?') < 0 ? '?' : '&') + 'invite=' + encodeURIComponent(t.email);
-      var files = plans.concat(att);
+      var files = att;
       mail_(t.email, 'Invitation to quote: ' + (pr.Branch || pr.Name), box_('You are invited to quote',
         '<p>Hi ' + esc_(t.name || '') + ',</p><p>You are invited to submit a quotation for the following:</p>' +
         table_([['Project', pr.Name + (pr.Branch ? ' – ' + pr.Branch : '')], ['Location', pr.Address],
