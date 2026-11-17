@@ -9,6 +9,8 @@
  */
 
 // ───────────────────────── Settings ─────────────────────────
+var VAT_TYPES = ['VAT Inclusive', 'VAT Exclusive', 'Non-VAT'];
+var VAT_RATE = 0.12;
 var TRADES = ['General Contractor', 'CCTV', 'WiFi / Network', 'Fire Sprinkler', 'Smoke Detector / Fire Alarm',
               'LPG Line', 'Aircon', 'Glass & Aluminum', 'Signage', 'Others'];
 
@@ -40,7 +42,7 @@ var TURNOVER_ITEMS = {
 var SCHEMA = {
   Owners:        ['OwnerID', 'Name', 'Email', 'Mobile', 'OdooKey', 'Active', 'CreatedAt'],
   Suppliers:     ['SupplierID', 'Company', 'ContactPerson', 'Mobile', 'Email', 'TIN', 'Address', 'Trades', 'PinHash',
-                  'Status', 'Docs', 'Remarks', 'CreatedAt', 'AccreditedAt'],
+                  'Status', 'Docs', 'Remarks', 'CreatedAt', 'AccreditedAt', 'BankName', 'AccountNo', 'AccountName'],
   Projects:      ['ProjectID', 'OwnerID', 'Name', 'Branch', 'Address', 'StartDate', 'TargetOpening', 'Status', 'Notes', 'CreatedAt', 'Plans',
                   'MapLink', 'SiteContact', 'SiteMobile'],
   Packages:      ['PackageID', 'ProjectID', 'Trade', 'Scope', 'Status', 'AwardedSupplierID', 'AwardedQuoteID', 'ContractAmount',
@@ -50,7 +52,8 @@ var SCHEMA = {
                   'SentAt', 'ViewedAt', 'RespondedAt', 'DeclineReason', 'SupplierEmail', 'SupplierName'],
   Quotes:        ['QuoteID', 'InviteID', 'PackageID', 'ProjectID', 'SupplierID', 'Rev', 'Lines', 'Total', 'DurationDays',
                   'PaymentTerms', 'WarrantyMonths', 'Notes', 'Attachments', 'IsFinal', 'Status', 'OwnerRemarks',
-                  'CounterAmount', 'AwardStatus', 'NotifiedAt', 'CreatedAt', 'UpdatedAt'],
+                  'CounterAmount', 'AwardStatus', 'NotifiedAt', 'CreatedAt', 'UpdatedAt',
+                  'VatType', 'Subtotal', 'VatAmount', 'DocsToProvide', 'BankName', 'AccountNo', 'AccountName'],
   Payments:      ['PaymentID', 'PackageID', 'ProjectID', 'SupplierID', 'Type', 'RequestID', 'Amount', 'PaidDate', 'Method',
                   'RefNo', 'Proof', 'Notes', 'Status', 'RecordedAt', 'ConfirmedAt'],
   PayRequests:   ['RequestID', 'PackageID', 'ProjectID', 'SupplierID', 'Type', 'Amount', 'Milestone', 'Notes',
@@ -68,7 +71,7 @@ var SCHEMA = {
   EmailLog:      ['At', 'To', 'Subject', 'Ref', 'Result']
 };
 
-var JSON_FIELDS = { Docs: 1, Attachments: 1, Lines: 1, Proof: 1, Photos: 1, Media: 1, Checklist: 1, Trades: 1, Plans: 1 };
+var JSON_FIELDS = { Docs: 1, Attachments: 1, Lines: 1, Proof: 1, Photos: 1, Media: 1, Checklist: 1, Trades: 1, Plans: 1, DocsToProvide: 1 };
 
 // ───────────────────────── Web entry points ─────────────────────────
 function doGet() {
@@ -344,6 +347,9 @@ function api_data(token) {
   var self = all.Suppliers.filter(mine)[0];
   out.Profile = self;
   out.Invitations = all.Invitations.filter(mine);
+  out.Invitations.forEach(function (i) {   // seeing the invitation in the portal counts as "Viewed"
+    if (i.Status === 'Invited') { update_('Invitations', i.InviteID, { Status: 'Viewed', ViewedAt: now_() }); i.Status = 'Viewed'; }
+  });
   out.Quotes = all.Quotes.filter(mine);
   var seePkg = {}, awarded = {};
   out.Invitations.forEach(function (i) { seePkg[i.PackageID] = 1; });
@@ -446,7 +452,7 @@ function api_saveSupplierProfile(token, d) {
   var me = auth_(token, ['supplier', 'admin']);
   var id = me.role === 'supplier' ? me.id : d.SupplierID;
   var patch = {};
-  ['Company', 'ContactPerson', 'Mobile', 'TIN', 'Address'].forEach(function (k) { if (d[k] !== undefined) patch[k] = str_(d[k], 500); });
+  ['Company', 'ContactPerson', 'Mobile', 'TIN', 'Address', 'BankName', 'AccountNo', 'AccountName'].forEach(function (k) { if (d[k] !== undefined) patch[k] = str_(d[k], 500); });
   if (d.Trades) patch.Trades = d.Trades.filter(function (t) { return TRADES.indexOf(t) >= 0; });
   if (d.Docs) patch.Docs = d.Docs;
   return clean_(update_('Suppliers', id, patch));
@@ -641,19 +647,30 @@ function api_submitQuote(token, inviteId, q, isFinal) {
       return { desc: str_(l.desc, 300), qty: qty, unit: str_(l.unit, 20), price: price, amount: Math.round(qty * price * 100) / 100 };
     }).filter(function (l) { return l.desc; });
     if (!lines.length) throw new Error('Please add at least one line item.');
-    var total = lines.reduce(function (a, l) { return a + l.amount; }, 0);
+    var subtotal = Math.round(lines.reduce(function (a, l) { return a + l.amount; }, 0) * 100) / 100;
+    if (VAT_TYPES.indexOf(q.VatType) < 0) throw new Error('Please choose if your price is VAT Inclusive, VAT Exclusive or Non-VAT.');
+    // Total = amount the owner will pay. VAT Exclusive adds 12%; VAT Inclusive already contains it.
+    var vat = q.VatType === 'VAT Exclusive' ? subtotal * VAT_RATE : q.VatType === 'VAT Inclusive' ? subtotal * VAT_RATE / (1 + VAT_RATE) : 0;
+    vat = Math.round(vat * 100) / 100;
+    var total = q.VatType === 'VAT Exclusive' ? subtotal + vat : subtotal;
+    if (!str_(q.BankName) || !str_(q.AccountNo) || !str_(q.AccountName)) throw new Error('Please fill in your payment details (bank / e-wallet, account number and account name).');
+    var docs = (q.DocsToProvide || []).map(function (x) { return str_(x, 150); }).filter(String);
     if (prev) update_('Quotes', prev.QuoteID, { Status: 'Superseded', UpdatedAt: now_() });
     var nq = insert_('Quotes', { QuoteID: id_('QT'), InviteID: inviteId, PackageID: inv.PackageID, ProjectID: inv.ProjectID,
       SupplierID: me.id, Rev: prev ? Number(prev.Rev) + 1 : 0, Lines: lines, Total: Math.round(total * 100) / 100,
       DurationDays: num_(q.DurationDays), PaymentTerms: str_(q.PaymentTerms, 500), WarrantyMonths: num_(q.WarrantyMonths),
       Notes: str_(q.Notes, 3000), Attachments: q.Attachments || [], IsFinal: !!isFinal,
+      VatType: q.VatType, Subtotal: subtotal, VatAmount: vat, DocsToProvide: docs,
+      BankName: str_(q.BankName, 100), AccountNo: str_(q.AccountNo, 60), AccountName: str_(q.AccountName, 150),
       Status: isFinal ? 'Final' : 'Submitted', OwnerRemarks: '', CounterAmount: '', AwardStatus: 'Pending', NotifiedAt: '',
       CreatedAt: now_(), UpdatedAt: now_() });
     update_('Invitations', inviteId, { Status: 'Quoted', RespondedAt: now_() });
+    update_('Suppliers', me.id, { BankName: nq.BankName, AccountNo: nq.AccountNo, AccountName: nq.AccountName }); // remember for next quote
     var label = isFinal ? 'FINAL quote' : (prev ? 'revised quote (Rev ' + nq.Rev + ')' : 'quote');
     notifyOwner_(inv.ProjectID, 'New ' + label + ' from ' + me.name + ' – ' + pk.Trade,
       '<p><b>' + esc_(me.name) + '</b> submitted a ' + label + ' for <b>' + esc_(pk.Trade) + '</b>.</p>' +
-      table_([['Total', peso_(nq.Total)], ['Duration', nq.DurationDays + ' days'], ['Payment terms', nq.PaymentTerms]]) +
+      table_([['Total', peso_(nq.Total) + ' (' + nq.VatType + ')'], ['Duration', nq.DurationDays + ' days'], ['Payment terms', nq.PaymentTerms],
+              ['Documents to provide', docs.join(', ')]]) +
       btn_('Review in portal'), nq.QuoteID);
     return nq;
   });
@@ -721,7 +738,8 @@ function api_award(token, packageId, quoteId, opts) {
     mail_(win.Email, 'Award notice: ' + pk.Trade + ' – ' + (pr.Branch || pr.Name), box_('Congratulations – you have been awarded!',
       '<p>Hi ' + esc_(win.ContactPerson || win.Company) + ',</p><p>We are pleased to inform you that your quotation has been <b>awarded</b>.</p>' +
       table_([['Project', pr.Name + (pr.Branch ? ' – ' + pr.Branch : '')], ['Location', pr.Address], ['Package', pk.Trade],
-              ['Contract amount', peso_(amount)], ['Payment terms', q.PaymentTerms], ['Downpayment', opts.dpRequired ? 'Yes – you will be notified once it is sent' : 'None'],
+              ['Contract amount', peso_(amount) + (q.VatType ? ' (' + q.VatType + ')' : '')], ['Payment terms', q.PaymentTerms],
+              ['Documents you will provide', (q.DocsToProvide || []).join(', ')], ['Downpayment', opts.dpRequired ? 'Yes – you will be notified once it is sent' : 'None'],
               ['Retention', num_(opts.retentionPct) ? num_(opts.retentionPct) + '% until turnover' : 'None'],
               ['Required progress updates', schedText_(pkg_(packageId))]]) +
       '<p><b>Next step:</b> ' + (opts.dpRequired ? 'wait for the downpayment, then submit your mobilization details in the portal.'
@@ -776,9 +794,13 @@ function api_requestPayment(token, d) {
     Type: str_(d.Type, 40) || 'Progress', Amount: amt, Milestone: str_(d.Milestone, 300), Notes: str_(d.Notes, 2000),
     Attachments: d.Attachments || [], Status: 'Requested', RequestedAt: now_(), DecidedAt: '', RejectReason: '' });
   notifyOwner_(pk.ProjectID, 'Payment request from ' + me.name + ': ' + peso_(amt), '<p><b>' + esc_(me.name) + '</b> (' + esc_(pk.Trade) +
-    ') is requesting a <b>' + esc_(r.Type) + '</b> payment.</p>' + table_([['Amount', peso_(amt)], ['For', r.Milestone], ['Notes', r.Notes]]) +
+    ') is requesting a <b>' + esc_(r.Type) + '</b> payment.</p>' + table_([['Amount', peso_(amt)], ['For', r.Milestone], ['Notes', r.Notes]].concat(payTo_(pk))) +
     '<p>Upload your proof of settlement in the portal once paid.</p>' + btn_('Open portal'), r.RequestID);
   return r;
+}
+function payTo_(pk) {
+  var q = find_('Quotes', pk.AwardedQuoteID) || {}, s = find_('Suppliers', pk.AwardedSupplierID) || {};
+  return [['Pay to – bank / e-wallet', q.BankName || s.BankName], ['Account number', q.AccountNo || s.AccountNo], ['Account name', q.AccountName || s.AccountName]];
 }
 function api_rejectRequest(token, requestId, reason) {
   var me = auth_(token, ['admin', 'owner']);
@@ -998,13 +1020,42 @@ function api_turnOver(token, packageId, remarks) {
 function dailyJobs() {
   var today = today_();
   var tmr = addDays_(today, 1);
+  // Invitation reminders: 2 days after sending (if not opened), 1 day before the deadline, on the deadline day.
+  // The day after the deadline the invitation expires and the owner gets a list of who did not respond.
+  var expired = {};
   rows_('Invitations').forEach(function (i) {
     if (i.Status !== 'Invited' && i.Status !== 'Viewed') return;
-    var s = find_('Suppliers', i.SupplierID) || (i.SupplierEmail ? { Email: i.SupplierEmail } : null), pk = find_('Packages', i.PackageID);
-    if (!s || !pk) return;
-    if (i.Deadline && i.Deadline < today) update_('Invitations', i.InviteID, { Status: 'Expired' });
-    else if (i.Deadline === tmr) mail_(s.Email, 'Reminder: quote due tomorrow – ' + pk.Trade, box_('Quote due tomorrow',
-      '<p>Your quotation for <b>' + esc_(pk.Trade) + '</b> is due on <b>' + i.Deadline + '</b>.</p>' + btn_('Submit quote')), i.InviteID);
+    var s = find_('Suppliers', i.SupplierID), pk = find_('Packages', i.PackageID), pr = find_('Projects', i.ProjectID);
+    var email = s ? s.Email : i.SupplierEmail;
+    if (!email || !pk || !pr || pk.AwardedSupplierID) return;
+    if (i.Deadline && i.Deadline < today) {
+      update_('Invitations', i.InviteID, { Status: 'Expired' });
+      (expired[i.ProjectID] = expired[i.ProjectID] || []).push({ name: s ? s.Company : (i.SupplierName || i.SupplierEmail), email: email, trade: pk.Trade, deadline: i.Deadline });
+      return;
+    }
+    var appUrl = props_().getProperty('APP_URL') || '#';
+    var link = s ? appUrl : appUrl + (appUrl.indexOf('?') < 0 ? '?' : '&') + 'invite=' + encodeURIComponent(email);
+    var button = '<p style="margin:18px 0"><a href="' + link + '" style="background:#FF6B00;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;font-weight:600">' +
+                 (s ? 'Open invitation' : 'Register & view invitation') + '</a></p>';
+    var where = esc_(pk.Trade) + '</b> – ' + esc_(pr.Name + (pr.Branch ? ' – ' + pr.Branch : ''));
+    var sent = String(i.SentAt).slice(0, 10);
+    if (i.Deadline === today)
+      mail_(email, 'Last day to submit your quote – ' + pk.Trade, box_('Last day to submit your quote',
+        '<p>Today is the deadline for your quotation for <b>' + where + '.</p><p>If you can\'t quote, please click Decline so the owner knows.</p>' + button), i.InviteID);
+    else if (i.Deadline === tmr)
+      mail_(email, 'Reminder: quote due tomorrow – ' + pk.Trade, box_('Quote due tomorrow',
+        '<p>Your quotation for <b>' + where + '</b> is due on <b>' + i.Deadline + '</b>.</p>' + button), i.InviteID);
+    else if (i.Status === 'Invited' && sent && daysDiff_(sent, today) === 2)
+      mail_(email, 'Reminder: invitation to quote – ' + pk.Trade, box_('You have an invitation to quote',
+        '<p>You were invited to quote for <b>' + where + '. The deadline is <b>' + i.Deadline + '</b>.</p>' +
+        (s ? '' : '<p>Register with this email address (' + esc_(email) + ') to see the plans and submit your quote.</p>') + button), i.InviteID);
+  });
+  Object.keys(expired).forEach(function (pid) {
+    var pr = find_('Projects', pid), list = expired[pid];
+    notifyOwner_(pid, 'No response to quote invitation – ' + (pr.Branch || pr.Name),
+      '<p>The quote deadline passed and these suppliers did not respond:</p><ul>' + list.map(function (x) {
+        return '<li><b>' + esc_(x.name) + '</b> (' + esc_(x.email) + ') – ' + esc_(x.trade) + ', deadline ' + x.deadline + '</li>'; }).join('') +
+      '</ul><p>You can <b>extend the deadline</b> or invite another supplier in the portal.</p>' + btn_('Open portal'), pid);
   });
   rows_('Packages').forEach(function (pk) {
     if (['Awarded', 'Mobilized', 'Ongoing'].indexOf(pk.Status) < 0) return;

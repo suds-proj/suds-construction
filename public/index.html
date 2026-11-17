@@ -452,7 +452,7 @@ function supplierHome(){
     ${quoted.map(i=>{ const q=latestQuote(i.InviteID); if(!q) return ''; const pk=pkgOf(i.PackageID), pr=proj(i.ProjectID);
       const canRevise = !truthy(q.IsFinal) && ['Submitted','Negotiating'].includes(q.Status) && !pk.AwardedSupplierID;
       return `<tr><td>${h(pr.Branch||pr.Name)}</td><td>${h(pk.Trade)}</td><td>${q.Rev}${truthy(q.IsFinal)?' <span class="badge b-blue">Final</span>':''}</td>
-        <td class="num">${peso(q.Total)}</td><td>${badge(q.Status)}</td>
+        <td class="num">${peso(q.Total)}${q.VatType?`<div class="small muted">${h(q.VatType)}</div>`:''}</td><td>${badge(q.Status)}</td>
         <td class="small">${q.CounterAmount?`Counter: <b>${peso(q.CounterAmount)}</b><br>`:''}${nl(q.OwnerRemarks)}</td>
         <td class="nowrap"><button class="btn sm sec" onclick="viewQuote('${q.QuoteID}')">View</button>
         ${canRevise?`<button class="btn sm" onclick="quoteForm('${i.InviteID}')">Revise</button>`:''}</td></tr>`; }).join('')}</table></div>` : `<div class="empty">No quotations yet.</div>`;
@@ -479,8 +479,10 @@ function editProfile(){
   openModal('Edit company profile', `<label>Company name</label><input type="text" id="pfCompany" value="${h(P.Company)}">
     <div class="f2"><div><label>Contact person</label><input type="text" id="pfContact" value="${h(P.ContactPerson)}"></div><div><label>Mobile</label><input type="text" id="pfMobile" value="${h(P.Mobile)}"></div></div>
     <div class="f2"><div><label>TIN</label><input type="text" id="pfTin" value="${h(P.TIN)}"></div><div><label>Address</label><input type="text" id="pfAddr" value="${h(P.Address)}"></div></div>
-    <label>Trades</label>${tr.map(t=>`<label class="chk"><input type="checkbox" name="pfTrade" value="${h(t)}" ${(P.Trades||[]).includes(t)?'checked':''}> ${h(t)}</label>`).join('')}`,
-    ()=>act('Saving…',()=>api('api_saveSupplierProfile',S.token,{Company:$('pfCompany').value,ContactPerson:$('pfContact').value,Mobile:$('pfMobile').value,TIN:$('pfTin').value,Address:$('pfAddr').value,
+    <label>Trades</label>${tr.map(t=>`<label class="chk"><input type="checkbox" name="pfTrade" value="${h(t)}" ${(P.Trades||[]).includes(t)?'checked':''}> ${h(t)}</label>`).join('')}
+    <label>Payment details (default for your quotes)</label><div class="f2"><div><input type="text" id="pfBank" placeholder="Bank / e-wallet" value="${h(P.BankName)}"></div><div><input type="text" id="pfAcctNo" placeholder="Account number" value="${h(P.AccountNo)}"></div></div>
+    <input type="text" id="pfAcctName" placeholder="Account name" style="margin-top:8px" value="${h(P.AccountName)}">`,
+    ()=>act('Saving…',()=>api('api_saveSupplierProfile',S.token,{Company:$('pfCompany').value,ContactPerson:$('pfContact').value,Mobile:$('pfMobile').value,TIN:$('pfTin').value,Address:$('pfAddr').value,BankName:$('pfBank').value,AccountNo:$('pfAcctNo').value,AccountName:$('pfAcctName').value,
       Trades:[...document.querySelectorAll('input[name=pfTrade]:checked')].map(x=>x.value)})));
 }
 function uploadSupplierDocs(){
@@ -496,25 +498,41 @@ function quoteForm(inviteId){
   const inv = byId('Invitations','InviteID',inviteId), pk = pkgOf(inv.PackageID), prev = latestQuote(inviteId);
   if(inv.Status==='Invited') api('api_inviteViewed',S.token,inviteId).catch(()=>{});
   const lines = prev ? prev.Lines : [{desc:'',qty:1,unit:'lot',price:''}];
+  const payDef = prev && prev.BankName ? prev : (D().Profile||{});
   openModal(`${prev?'Revise':'Submit'} quotation – ${h(pk.Trade)}`, `
     ${prev&&prev.Status==='Negotiating'?`<div class="infobox"><b>Owner's request:</b> ${prev.CounterAmount?'counter-offer '+peso(prev.CounterAmount)+'. ':''}${nl(prev.OwnerRemarks)}</div>`:''}
     <label>Line items</label>
     <div class="tw"><table class="lines" id="qLines"><tr><th>Description</th><th style="width:70px">Qty</th><th style="width:70px">Unit</th><th style="width:110px">Unit price</th><th class="num" style="width:110px">Amount</th><th></th></tr>
     ${lines.map(lineRow).join('')}</table></div>
-    <div class="row" style="margin-top:8px"><button class="btn sm sec" onclick="addLine()">+ Add line</button><span class="spacer"></span><b>Total: <span id="qTotal">₱0.00</span></b></div>
+    <div class="row" style="margin-top:8px;align-items:flex-start"><button class="btn sm sec" onclick="addLine()">+ Add line</button><span class="spacer"></span>
+      <div class="right small" id="qSum"></div></div>
+    <label>Are your prices VAT inclusive? *</label>
+    <div class="row">${['VAT Inclusive','VAT Exclusive','Non-VAT'].map(v=>`<label class="chk" style="margin:0 14px 0 0"><input type="radio" name="qVat" value="${v}" ${prev&&prev.VatType===v?'checked':''} onchange="calcLines()"> ${v}</label>`).join('')}</div>
+    <p class="small muted" style="margin:2px 0 0">VAT Exclusive: 12% VAT is added on top. VAT Inclusive: the prices already include VAT. Non-VAT: not VAT-registered.</p>
     <div class="f2"><div><label>How many days to finish? *</label><input type="number" id="qDays" min="1" value="${h(prev?prev.DurationDays:'')}"></div>
     <div><label>Warranty (months)</label><input type="number" id="qWarr" min="0" value="${h(prev?prev.WarrantyMonths:'')}"></div></div>
     <label>Payment terms</label><input type="text" id="qTerms" placeholder="e.g. 30% DP, 40% progress, 30% upon turnover" value="${h(prev?prev.PaymentTerms:'')}">
     <label>Notes / inclusions / exclusions</label><textarea id="qNotes">${h(prev?prev.Notes:'')}</textarea>
+    <label>Documents you will provide (after payment / at turnover)</label>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:0 12px">${QUOTE_DOCS.map(d=>`<label class="chk"><input type="checkbox" name="qDoc" value="${h(d)}" ${(prev?(prev.DocsToProvide||[]):[]).includes(d)?'checked':''}> ${h(d)}</label>`).join('')}</div>
+    <input type="text" id="qDocOther" placeholder="Other documents (separate with commas)" value="${h(prev?(prev.DocsToProvide||[]).filter(d=>!QUOTE_DOCS.includes(d)).join(', '):'')}">
+    <label>Payment details * <span class="muted small" style="font-weight:400">– where the owner will send payments</span></label>
+    <div class="f2"><div><input type="text" id="qBank" placeholder="Bank / e-wallet (e.g. BDO, GCash)" value="${h(payDef.BankName||'')}"></div>
+    <div><input type="text" id="qAcctNo" placeholder="Account number" value="${h(payDef.AccountNo||'')}"></div></div>
+    <input type="text" id="qAcctName" placeholder="Account name" style="margin-top:8px" value="${h(payDef.AccountName||'')}">
     <label>Attach your formal quotation (PDF, optional)</label>${fileField('qFiles','application/pdf,image/*',true)}
     ${prev&&prev.Attachments&&prev.Attachments.length?`<div class="small muted">Previous attachments are kept.</div>`:''}
     <label class="chk" style="margin-top:14px"><input type="checkbox" id="qFinal"> <span><b>This is my final quote</b>. It will be locked and can no longer be revised.</span></label>`,
     async()=>{
       const L = readLines(); if(!L.length) return toast('Add at least one line item.',true);
       if(num($('qDays').value)<=0) return toast('Please enter how many days the work will take.',true);
+      const vat = (document.querySelector('input[name=qVat]:checked')||{}).value; if(!vat) return toast('Please choose VAT Inclusive, VAT Exclusive or Non-VAT.',true);
+      if(!$('qBank').value.trim()||!$('qAcctNo').value.trim()||!$('qAcctName').value.trim()) return toast('Please fill in your payment details.',true);
+      const docs = [...document.querySelectorAll('input[name=qDoc]:checked')].map(x=>x.value).concat($('qDocOther').value.split(',').map(x=>x.trim()).filter(Boolean));
       const att = await uploadField('qFiles',{type:'project',packageId:pk.PackageID,kind:'Quotations'});
       await act('Submitting quote…',()=>api('api_submitQuote',S.token,inviteId,{Lines:L,DurationDays:$('qDays').value,WarrantyMonths:$('qWarr').value,
-        PaymentTerms:$('qTerms').value,Notes:$('qNotes').value,Attachments:(prev&&prev.Attachments||[]).concat(att)},$('qFinal').checked));
+        PaymentTerms:$('qTerms').value,Notes:$('qNotes').value,Attachments:(prev&&prev.Attachments||[]).concat(att),
+        VatType:vat,DocsToProvide:docs,BankName:$('qBank').value,AccountNo:$('qAcctNo').value,AccountName:$('qAcctName').value},$('qFinal').checked));
       toast('Quotation submitted. The owner was notified.');
     }, 'Submit quote', '', true);
   calcLines();
@@ -524,7 +542,16 @@ const lineRow = l => `<tr><td><input type="text" class="lDesc" value="${h(l.desc
   <td class="num lAmt">—</td><td><button class="btn sm sec" onclick="this.closest('tr').remove();calcLines()">×</button></td></tr>`;
 function addLine(){ $('qLines').insertAdjacentHTML('beforeend',lineRow({desc:'',qty:1,unit:'',price:''})); }
 function readLines(){ return [...document.querySelectorAll('#qLines tr')].slice(1).map(tr=>({desc:tr.querySelector('.lDesc').value.trim(),qty:num(tr.querySelector('.lQty').value),unit:tr.querySelector('.lUnit').value,price:num(tr.querySelector('.lPrice').value)})).filter(l=>l.desc); }
-function calcLines(){ let t=0; document.querySelectorAll('#qLines tr').forEach((tr,i)=>{ if(!i) return; const a=num(tr.querySelector('.lQty').value)*num(tr.querySelector('.lPrice').value); t+=a; tr.querySelector('.lAmt').textContent=peso(a); }); if($('qTotal')) $('qTotal').textContent=peso(t); }
+const QUOTE_DOCS = ['Official Receipt / Sales Invoice','Acknowledgment Receipt','Warranty certificate','As-built plans','Test / inspection certificate','Manuals & serial numbers','Delivery receipt','Permits secured','Certificate of completion'];
+function vatCalc(sub, type){ const v = type==='VAT Exclusive' ? sub*0.12 : type==='VAT Inclusive' ? sub*0.12/1.12 : 0; return { vat:v, total: type==='VAT Exclusive' ? sub+v : sub }; }
+function calcLines(){
+  let t=0; document.querySelectorAll('#qLines tr').forEach((tr,i)=>{ if(!i) return; const a=num(tr.querySelector('.lQty').value)*num(tr.querySelector('.lPrice').value); t+=a; tr.querySelector('.lAmt').textContent=peso(a); });
+  if(!$('qSum')) return;
+  const type = (document.querySelector('input[name=qVat]:checked')||{}).value, c = vatCalc(t,type);
+  $('qSum').innerHTML = type==='VAT Exclusive' ? `Subtotal ${peso(t)}<br>+ 12% VAT ${peso(c.vat)}<br><b style="font-size:15px">Total ${peso(c.total)}</b>`
+    : type==='VAT Inclusive' ? `<b style="font-size:15px">Total ${peso(t)}</b><br><span class="muted">includes VAT ${peso(c.vat)}</span>`
+    : `<b style="font-size:15px">Total ${peso(t)}</b>${type?'<br><span class="muted">Non-VAT</span>':''}`;
+}
 function viewQuote(qid){
   const q = byId('Quotes','QuoteID',qid), pk=pkgOf(q.PackageID), s=sup(q.SupplierID);
   const revs = where('Quotes',x=>x.InviteID===q.InviteID).sort((a,b)=>b.Rev-a.Rev);
@@ -532,9 +559,12 @@ function viewQuote(qid){
     <div class="row">${badge(q.Status)} <span class="muted small">Rev ${q.Rev} · ${h(q.CreatedAt)}</span>${truthy(q.IsFinal)?'<span class="badge b-blue">Final quote</span>':''}</div>
     <div class="tw" style="margin-top:10px"><table><tr><th>Description</th><th class="num">Qty</th><th>Unit</th><th class="num">Unit price</th><th class="num">Amount</th></tr>
     ${(q.Lines||[]).map(l=>`<tr><td>${h(l.desc)}</td><td class="num">${h(l.qty)}</td><td>${h(l.unit)}</td><td class="num">${peso(l.price)}</td><td class="num">${peso(l.amount)}</td></tr>`).join('')}
-    <tr><td colspan="4" class="right"><b>Total</b></td><td class="num"><b>${peso(q.Total)}</b></td></tr></table></div>
+    ${q.VatType==='VAT Exclusive'?`<tr><td colspan="4" class="right">Subtotal</td><td class="num">${peso(q.Subtotal)}</td></tr><tr><td colspan="4" class="right">+ 12% VAT</td><td class="num">${peso(q.VatAmount)}</td></tr>`:''}
+    <tr><td colspan="4" class="right"><b>Total</b> ${q.VatType?`<span class="badge b-blue">${h(q.VatType)}</span>`:''}${q.VatType==='VAT Inclusive'?`<div class="small muted">includes VAT ${peso(q.VatAmount)}</div>`:''}</td><td class="num"><b>${peso(q.Total)}</b></td></tr></table></div>
     <div class="f2 small" style="margin-top:10px"><div><b>Duration:</b> ${h(q.DurationDays)} days</div><div><b>Warranty:</b> ${h(q.WarrantyMonths||0)} months</div></div>
-    <p class="small"><b>Payment terms:</b> ${h(q.PaymentTerms||'—')}</p>${q.Notes?`<p class="small"><b>Notes:</b> ${nl(q.Notes)}</p>`:''}${media(q.Attachments)}
+    <p class="small"><b>Payment terms:</b> ${h(q.PaymentTerms||'—')}</p>
+    <p class="small"><b>Documents to provide:</b> ${h((q.DocsToProvide||[]).join(', ')||'—')}</p>
+    ${q.BankName?`<p class="small"><b>Payment details:</b> ${h(q.BankName)} · ${h(q.AccountNo)} · ${h(q.AccountName)}</p>`:''}${q.Notes?`<p class="small"><b>Notes:</b> ${nl(q.Notes)}</p>`:''}${media(q.Attachments)}
     ${q.OwnerRemarks?`<div class="infobox">Owner: ${q.CounterAmount?'counter '+peso(q.CounterAmount)+' · ':''}${nl(q.OwnerRemarks)}</div>`:''}
     ${revs.length>1?`<h3 style="margin-top:14px">Revision history</h3><div class="tw"><table><tr><th>Rev</th><th>Date</th><th class="num">Total</th><th>Status</th><th>Owner remarks</th></tr>
       ${revs.map(r=>`<tr><td>${r.Rev}</td><td class="small">${h(r.CreatedAt)}</td><td class="num">${peso(r.Total)}</td><td>${badge(r.Status)}</td><td class="small">${r.CounterAmount?'Counter '+peso(r.CounterAmount)+' · ':''}${nl(r.OwnerRemarks)}</td></tr>`).join('')}</table></div>`:''}`,
@@ -719,7 +749,7 @@ function quotingSection(pk){
     const who = i.SupplierID ? `<b>${h(s.Company)}</b><div class="small muted">${h(s.ContactPerson)} · ${h(s.Mobile)}</div>`
       : `<b>${h(i.SupplierName||i.SupplierEmail)}</b><div class="small muted">${h(i.SupplierEmail)}</div><span class="badge b-amber">Not registered yet</span>`;
     return `<tr><td>${who}</td><td>${badge(i.Status)}${i.DeclineReason?`<div class="small muted">${h(i.DeclineReason)}</div>`:''}</td>
-      <td class="small nowrap">${fmtD(i.Deadline)}</td><td class="num">${q?peso(q.Total):'—'}</td><td class="num">${q?h(q.DurationDays)+' days':'—'}</td>
+      <td class="small nowrap">${fmtD(i.Deadline)}</td><td class="num">${q?peso(q.Total)+(q.VatType?`<div class="small muted">${h(q.VatType)}</div>`:''):'—'}</td><td class="num">${q?h(q.DurationDays)+' days':'—'}</td>
       <td>${q?`Rev ${q.Rev} ${truthy(q.IsFinal)?'<span class="badge b-blue">Final</span>':''}<br>${badge(q.Status)}`:'—'}</td><td class="nowrap">${acts}</td></tr>`; }).join('');
   const quotes = inv.map(i=>latestQuote(i.InviteID)).filter(q=>q&&!['Declined','Superseded'].includes(q.Status));
   const low = quotes.length ? Math.min(...quotes.map(q=>num(q.Total))) : 0;
@@ -840,7 +870,9 @@ function overviewTab(pk, st, own){
     <div class="card"><h3>Contract</h3><div class="small">
       <p><b>Contractor:</b> ${h(s.Company)} · ${h(s.ContactPerson||'')} ${h(s.Mobile||'')} ${h(s.Email||'')}</p>
       <p><b>Awarded:</b> ${h(pk.AwardedAt)} · <b>Downpayment:</b> ${dpNeeded?'required':'none'} · <b>Retention:</b> ${num(pk.RetentionPct)}%</p>
-      ${q?`<p><b>Payment terms:</b> ${h(q.PaymentTerms||'—')} · <b>Warranty:</b> ${h(q.WarrantyMonths||0)} months</p><button class="btn sm sec" onclick="viewQuote('${q.QuoteID}')">View awarded quote</button>`:''}
+      ${q?`<p><b>Payment terms:</b> ${h(q.PaymentTerms||'—')} · <b>Warranty:</b> ${h(q.WarrantyMonths||0)} months${q.VatType?' · <b>'+h(q.VatType)+'</b>':''}</p>
+      <p><b>Documents to provide:</b> ${h((q.DocsToProvide||[]).join(', ')||'—')}</p>
+      ${q.BankName?`<p><b>Pay to:</b> ${h(q.BankName)} · ${h(q.AccountNo)} · ${h(q.AccountName)}</p>`:''}<button class="btn sm sec" onclick="viewQuote('${q.QuoteID}')">View awarded quote</button>`:''}
       ${own&&!where('Payments',p=>p.PackageID===pk.PackageID).length?` <button class="btn sm sec" onclick="cancelAward('${pk.PackageID}')">Cancel award</button>`:''}
       ${pk.TurnedOverAt?`<p class="okbox">Turned over ${h(pk.TurnedOverAt)}${pk.WarrantyEnd?' · warranty until '+fmtD(pk.WarrantyEnd):''}</p>`:''}</div></div></div>
     ${shared.length?`<div class="card"><h3>Plans & documents shared with you</h3>${media(shared)}</div>`:''}
@@ -944,11 +976,17 @@ function concernReply(id, resolve){
 }
 
 /* — Payments — */
+function payToBox(pk){
+  const q = byId('Quotes','QuoteID',pk.AwardedQuoteID)||{}, s = sup(pk.AwardedSupplierID)||{};
+  const b = q.BankName||s.BankName, n = q.AccountNo||s.AccountNo, a = q.AccountName||s.AccountName;
+  return b||n ? `<div class="infobox" style="color:var(--ink)"><b>Pay to:</b> ${h(b||'—')} · Account no. <b>${h(n||'—')}</b> <button class="btn sm sec" onclick="copyText('${h(n||'')}')">Copy</button> · Account name <b>${h(a||'—')}</b>${q.VatType?` · <span class="badge b-blue">${h(q.VatType)}</span>`:''}</div>` : '';
+}
 function paymentsTab(pk, st, own){
   const reqs = where('PayRequests',r=>r.PackageID===pk.PackageID).sort((a,b)=>String(b.RequestedAt).localeCompare(a.RequestedAt));
   const pays = where('Payments',p=>p.PackageID===pk.PackageID).sort((a,b)=>String(b.PaidDate).localeCompare(a.PaidDate));
   return `<div class="kpis"><div class="kpi"><div class="l">Contract</div><div class="v">${peso(st.contract)}</div></div><div class="kpi"><div class="l">Paid</div><div class="v">${peso(st.paid)}</div></div>
     <div class="kpi"><div class="l">Balance</div><div class="v">${peso(st.balance)}</div></div><div class="kpi"><div class="l">% paid vs progress</div><div class="v">${pct(st.pctPaid)} / ${pct(st.progress)}</div></div></div>
+    ${payToBox(pk)}
     <div class="row"><h2 style="margin:0">Payment requests</h2><span class="spacer"></span>${!own&&pk.Status!=='Turned Over'||!own&&num(pk.RetentionPct)?`<button class="btn" onclick="payReqForm('${pk.PackageID}')">+ Request payment</button>`:''}</div>
     <div style="margin:10px 0 20px">${reqs.length?`<div class="tw"><table><tr><th>Date</th><th>Type</th><th>For</th><th class="num">Amount</th><th>Status</th><th></th></tr>
       ${reqs.map(r=>`<tr><td class="small nowrap">${h(r.RequestedAt)}</td><td>${h(r.Type)}</td><td class="small">${h(r.Milestone)}${r.Notes?'<br><span class="muted">'+nl(r.Notes)+'</span>':''}${media(r.Attachments)}</td>
@@ -974,7 +1012,7 @@ function payForm(pkgId, reqId){
   const r = reqId ? byId('PayRequests','RequestID',reqId) : null, pk = pkgOf(pkgId);
   const hasDp = where('Payments',p=>p.PackageID===pkgId&&p.Type==='Downpayment').length;
   const defType = r ? r.Type : (truthy(pk.DPRequired)&&!hasDp ? 'Downpayment' : 'Progress');
-  openModal(r?'Pay request & upload proof':'Record payment', `${r?`<div class="infobox">Request: ${h(r.Type)} · ${peso(r.Amount)} · ${h(r.Milestone)}</div>`:''}
+  openModal(r?'Pay request & upload proof':'Record payment', `${r?`<div class="infobox">Request: ${h(r.Type)} · ${peso(r.Amount)} · ${h(r.Milestone)}</div>`:''}${payToBox(pk)}
     <div class="f2"><div><label>Type</label><select id="pyType">${['Downpayment','Progress','Final','Retention','Change order'].map(t=>`<option ${t===defType?'selected':''}>${t}</option>`).join('')}</select></div>
     <div><label>Amount paid *</label><input type="number" id="pyAmt" step="any" value="${r?num(r.Amount):''}"></div></div>
     <div class="f2"><div><label>Date paid</label><input type="date" id="pyDate" value="${D().today}"></div><div><label>Method</label><select id="pyMethod">${['Bank transfer','GCash','Check','Cash','Maya','Others'].map(m=>`<option>${m}</option>`).join('')}</select></div></div>
@@ -1012,7 +1050,8 @@ function coDecide(id, ok){ openModal(ok?'Approve change order':'Reject change or
 /* — Turnover — */
 function turnoverTab(pk, st, own){
   const t = byId('Turnover','PackageID',pk.PackageID);
-  const items = (D().turnoverItems._all||[]).concat(D().turnoverItems[pk.Trade]||[]);
+  const aq = byId('Quotes','QuoteID',pk.AwardedQuoteID)||{};
+  const items = [...new Set((D().turnoverItems._all||[]).concat(D().turnoverItems[pk.Trade]||[], (aq.DocsToProvide||[]).map(d=>'Document: '+d)))];
   if(own){
     if(!t) return `<div class="empty">The contractor has not submitted the turnover checklist yet.</div>`;
     return `<div class="card"><h3>Turnover checklist</h3><p class="small muted">Submitted ${h(t.SubmittedAt)}</p>
