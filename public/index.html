@@ -250,16 +250,53 @@ function pkgStats(pk){
   const mob = byId('Mobilization','PackageID',id);
   const active = ['Mobilized','Ongoing'].includes(pk.Status);
   const lastUp = ups[0] ? String(ups[0].SubmittedAt).slice(0,10) : '';
-  const noUpdate = active && mob && mob.MobDate<=today && daysBetween(lastUp||mob.MobDate, today) > 7;
+  const sched = active || pk.Status==='Awarded' ? updateRule(pk.UpdateFreq||'Weekly', pk.UpdateDay||'Friday', pk.UpdateDueDate, lastUp, mob?mob.MobDate:'', today) : {active:false};
+  const noUpdate = !!sched.overdue;
   const delayed = mob && mob.TargetEnd && today>mob.TargetEnd && !['For Turnover','Turned Over'].includes(pk.Status);
   const pctPaid = contract ? paid/contract*100 : 0;
-  return { contract, coApproved, paid, balance: contract-paid, pctPaid, progress, reported, msPct, ms, ups, mob, lastUp, noUpdate, delayed,
+  return { contract, coApproved, paid, balance: contract-paid, pctPaid, progress, reported, msPct, ms, ups, mob, lastUp, noUpdate, sched, delayed,
     overpaid: contract && pk.AwardedSupplierID && pctPaid > progress + 10 && pk.Status!=='Turned Over',
     openConcerns: where('Concerns',c=>c.PackageID===id && c.Status!=='Resolved').length,
     pendingReq: where('PayRequests',r=>r.PackageID===id && r.Status==='Requested').length,
     pendingCO: cos.filter(c=>c.Status==='Pending').length,
     unconfirmed: pays.filter(p=>p.Status==='Sent').length,
     retention: contract*num(pk.RetentionPct)/100 };
+}
+/* Required progress updates – same rules as updateRule_() in Code.gs */
+const WEEKDAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const addDays = (ymd,n) => { const d=new Date(ymd+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); };
+const weekday = ymd => WEEKDAYS[(new Date(ymd+'T00:00:00Z').getUTCDay()+6)%7];
+function updateRule(freq, day, dueDate, last, mobDate, today){
+  const out = {active:false,next:'',overdue:false};
+  if(freq==='None') return out;
+  if(freq==='One time'){ if(last||!dueDate) return out; return {active:true,next:dueDate,overdue:today>dueDate}; }
+  if(!mobDate || mobDate>today) return out;
+  const ref = last || mobDate;
+  if(freq==='Daily') return {active:true, next: last&&last>=today?addDays(today,1):today, overdue: daysBetween(ref,today)>=2};
+  let d = addDays(ref, freq==='Every 2 weeks'?8:1); while(weekday(d)!==day) d = addDays(d,1);
+  return {active:true,next:d,overdue:today>d};
+}
+function schedText(pk){
+  const f = pk.UpdateFreq||'Weekly';
+  if(f==='Weekly'||f==='Every 2 weeks') return `${f} – every ${pk.UpdateDay||'Friday'}`;
+  if(f==='One time') return `One time only${pk.UpdateDueDate?' – due '+fmtD(pk.UpdateDueDate):''}`;
+  if(f==='Daily') return 'Daily';
+  return 'No regular updates';
+}
+function schedFields(pk){
+  pk = pk||{}; const f = pk.UpdateFreq||'Weekly';
+  return `<div class="f2"><div><label>Required progress updates</label><select id="scFreq" onchange="document.getElementById('scDayW').classList.toggle('hidden',!['Weekly','Every 2 weeks'].includes(this.value));document.getElementById('scDueW').classList.toggle('hidden',this.value!=='One time')">
+      ${['Weekly','Every 2 weeks','Daily','One time','None'].map(x=>`<option value="${x}" ${x===f?'selected':''}>${x==='One time'?'One time only':x==='None'?'None (no reminders)':x}</option>`).join('')}</select></div>
+    <div><div id="scDayW" class="${['Weekly','Every 2 weeks'].includes(f)?'':'hidden'}"><label>Due every</label><select id="scDay">${WEEKDAYS.map(d=>`<option ${d===(pk.UpdateDay||'Friday')?'selected':''}>${d}</option>`).join('')}</select></div>
+    <div id="scDueW" class="${f==='One time'?'':'hidden'}"><label>Due date</label><input type="date" id="scDue" value="${h(pk.UpdateDueDate||'')}"></div></div></div>
+    <label>What should the update include? (optional)</label><input type="text" id="scNote" value="${h(pk.UpdateNote||'')}" placeholder="e.g. photos of each area, video walkthrough, materials delivered">
+    <p class="small muted">The contractor gets an email reminder when an update is due. You're notified if it's late.</p>`;
+}
+const readSched = () => ({freq:$('scFreq').value, day:$('scDay').value, dueDate:$('scDue').value, note:$('scNote').value});
+function schedForm(pkgId){
+  openModal('Required progress updates', schedFields(pkgOf(pkgId)), ()=>{
+    const sc = readSched(); if(sc.freq==='One time'&&!sc.dueDate) return toast('Set the due date.',true);
+    return act('Saving…',()=>api('api_setUpdateSchedule',S.token,pkgId,sc)); });
 }
 function projStats(pr){
   const pks = where('Packages',p=>p.ProjectID===pr.ProjectID);
@@ -352,7 +389,7 @@ function supplierHome(){
     if(truthy(pk.DPRequired) && !where('Payments',p=>p.PackageID===pk.PackageID&&p.Type==='Downpayment').length) todo.push('Waiting for downpayment');
     else if(!s.mob && pk.Status==='Awarded') todo.push('Submit mobilization details');
     if(s.unconfirmed) todo.push(s.unconfirmed+' payment(s) to confirm');
-    if(s.noUpdate) todo.push('Weekly update overdue');
+    if(s.noUpdate) todo.push('Progress update overdue');
     if(s.openConcerns) todo.push(s.openConcerns+' open concern(s)');
     return `<div class="card click" style="cursor:pointer" onclick="go('package','${pk.PackageID}')"><div class="row"><span class="pill">${h(pk.Trade)}</span>${badge(pk.Status)}</div>
       <h3 style="margin-top:8px">${h(pr.Name)}${pr.Branch?' – '+h(pr.Branch):''}</h3>
@@ -510,7 +547,7 @@ function projectView(id){
   const s = projStats(pr);
   const rows = s.pks.map(pk=>{ const st=pkgStats(pk), sp=pk.AwardedSupplierID?sup(pk.AwardedSupplierID):null;
     const inv = where('Invitations',i=>i.PackageID===pk.PackageID), quoted = inv.filter(i=>where('Quotes',q=>q.InviteID===i.InviteID).length).length;
-    const flags = [st.delayed?'<span class="badge b-red">Delayed</span>':'', st.noUpdate?'<span class="badge b-red">No update</span>':'', st.overpaid?'<span class="badge b-amber">Paid ahead</span>':'',
+    const flags = [st.delayed?'<span class="badge b-red">Delayed</span>':'', st.noUpdate?'<span class="badge b-red">Update overdue</span>':'', st.overpaid?'<span class="badge b-amber">Paid ahead</span>':'',
       st.pendingReq?`<span class="badge b-amber">${st.pendingReq} pay req</span>`:'', st.pendingCO?`<span class="badge b-amber">${st.pendingCO} CO</span>`:'', st.openConcerns?`<span class="badge b-red">${st.openConcerns} concern</span>`:''].join(' ');
     return `<tr class="click" onclick="go('package','${pk.PackageID}')"><td><b>${h(pk.Trade)}</b><div class="small muted">${h(String(pk.Scope||'').slice(0,60))}</div></td>
       <td>${sp?h(sp.Company):`<span class="small muted">${inv.length} invited · ${quoted} quoted</span>`}</td>
@@ -574,9 +611,9 @@ function packageView(id){
     <div class="kpi"><div class="l">Progress</div><div class="v">${pct(st.progress)}</div>${bar(st.progress)}<div class="small muted">reported ${pct(st.reported)}</div></div>
     <div class="kpi ${st.delayed?'warn':''}"><div class="l">Target end</div><div class="v" style="font-size:16px">${st.mob?fmtD(st.mob.TargetEnd):'—'}</div>${st.delayed?'<div class="small" style="color:var(--red)">Delayed</div>':''}</div>
   </div>
-  ${st.noUpdate?`<div class="warnbox">No weekly update in the last 7 days (last: ${st.lastUp?fmtD(st.lastUp):'none'}).</div>`:''}
+  ${st.noUpdate?`<div class="warnbox">Progress update overdue – was due ${fmtD(st.sched.next)} (last update: ${st.lastUp?fmtD(st.lastUp):'none'}).</div>`:''}
   ${st.overpaid&&own?`<div class="warnbox">Payments (${pct(st.pctPaid)}) are ahead of progress (${pct(st.progress)}). Check before paying more.</div>`:''}`;
-  const tabs = [['overview','Overview'],['updates','Weekly updates'],['milestones','Milestones'],['concerns','Concerns',st.openConcerns],['payments','Payments',own?st.pendingReq:st.unconfirmed],
+  const tabs = [['overview','Overview'],['updates','Progress updates'],['milestones','Milestones'],['concerns','Concerns',st.openConcerns],['payments','Payments',own?st.pendingReq:st.unconfirmed],
     ['co','Change orders',own?st.pendingCO:0],['turnover','Turnover',own&&pk.Status==='For Turnover'?1:0]];
   const t = S.tab['p'+id] || 'overview';
   head += `<div class="tabs">${tabs.map(([k,l,c])=>`<button class="tab ${t===k?'on':''}" onclick="S.tab['p${id}']='${k}';render()">${l}${c?`<span class="cnt">${c}</span>`:''}</button>`).join('')}</div>`;
@@ -682,8 +719,10 @@ function awardForm(qid){
     <div class="f2"><div><label>Contract amount</label><input type="number" id="awAmt" step="any" value="${num(q.Total)}"></div><div><label>Retention % (held until turnover)</label><input type="number" id="awRet" value="0" min="0" max="20"></div></div>
     <p class="small muted">Payment terms quoted: ${h(q.PaymentTerms||'—')}</p>
     <label class="chk"><input type="checkbox" id="awDp" ${/dp|down/i.test(q.PaymentTerms||'')?'checked':''}> Supplier requires a <b>downpayment</b> before mobilizing</label>
+    <h3 style="margin-top:16px">Progress updates from the contractor</h3>${schedFields({UpdateFreq: pk.Trade==='General Contractor'?'Weekly':'One time', UpdateDay:'Friday'})}
     ${others?`<label>Note to the ${others} other supplier(s) (optional)</label><input type="text" id="awRegret" placeholder="e.g. price was above our budget"><p class="small muted">They'll get a thank-you email. The winner and price are not shown.</p>`:''}`,
-    ()=>act('Awarding…',()=>api('api_award',S.token,q.PackageID,qid,{amount:$('awAmt').value,retentionPct:$('awRet').value,dpRequired:$('awDp').checked,regretRemark:$('awRegret')?$('awRegret').value:''})), 'Award','green');
+    ()=>{ const sc = readSched(); if(sc.freq==='One time'&&!sc.dueDate) return toast('Set the due date of the one-time update.',true);
+      return act('Awarding…',()=>api('api_award',S.token,q.PackageID,qid,{amount:$('awAmt').value,retentionPct:$('awRet').value,dpRequired:$('awDp').checked,regretRemark:$('awRegret')?$('awRegret').value:'',schedule:sc})); }, 'Award','green');
 }
 
 /* — Overview / mobilization — */
@@ -699,7 +738,13 @@ function overviewTab(pk, st, own){
       ${!own&&!['For Turnover','Turned Over'].includes(pk.Status)?`<button class="btn sm sec" style="margin-top:8px" onclick="mobForm('${pk.PackageID}')">Edit mobilization</button>`:''}`;
   else if(dpNeeded && !dpSent) mobBox = `<div class="infobox">${own?'Waiting for you to send the downpayment (go to <b>Payments</b> → Record payment). The contractor will then submit the mobilization schedule.':'Waiting for the owner to send the downpayment. You can submit mobilization details after that.'}</div>`;
   else mobBox = own ? `<div class="infobox">Waiting for the contractor to submit the mobilization schedule.</div>` : `<div class="infobox">Please submit your mobilization date, manpower and materials.</div><button class="btn" onclick="mobForm('${pk.PackageID}')">Submit mobilization</button>`;
-  return `<div class="grid g2"><div class="card"><h3>Mobilization</h3>${mobBox}</div>
+  const sc = st.sched||{};
+  const schedBox = `<div class="card"><div class="row"><h3 style="margin:0">Required progress updates</h3><span class="spacer"></span>${own&&pk.Status!=='Turned Over'?`<button class="btn sm sec" onclick="schedForm('${pk.PackageID}')">Change</button>`:''}</div>
+    <p style="margin:8px 0 4px"><b>${h(schedText(pk))}</b></p>${pk.UpdateNote?`<p class="small">Include: ${h(pk.UpdateNote)}</p>`:''}
+    ${sc.next?`<p class="small ${sc.overdue?'':'muted'}" style="${sc.overdue?'color:var(--red);font-weight:600':''}">${sc.overdue?'Overdue – was due':'Next update due'} ${fmtD(sc.next)}</p>`
+      : (pk.UpdateFreq||'Weekly')!=='None' && !(pk.UpdateFreq==='One time'&&st.lastUp) ? '<p class="small muted">Reminders start on the mobilization date.</p>' : ''}
+    ${!own&&sc.active?`<button class="btn sm" onclick="updateForm('${pk.PackageID}')">+ Submit progress update</button>`:''}</div>`;
+  return `<div class="grid g2"><div class="card"><h3>Mobilization</h3>${mobBox}</div>${schedBox}
     <div class="card"><h3>Contract</h3><div class="small">
       <p><b>Contractor:</b> ${h(s.Company)} · ${h(s.ContactPerson||'')} ${h(s.Mobile||'')} ${h(s.Email||'')}</p>
       <p><b>Awarded:</b> ${h(pk.AwardedAt)} · <b>Downpayment:</b> ${dpNeeded?'required':'none'} · <b>Retention:</b> ${num(pk.RetentionPct)}%</p>
@@ -721,33 +766,35 @@ function mobForm(pkgId){
 function cancelAward(pkgId){ openModal('Cancel award', `<p>The contractor will be emailed and you can award another quote.</p><label>Reason *</label><textarea id="caR"></textarea>`,
   ()=>{ if(!$('caR').value.trim()) return toast('Please give a reason.',true); return act('Saving…',()=>api('api_cancelAward',S.token,pkgId,$('caR').value)); }, 'Cancel award','red'); }
 
-/* — Weekly updates — */
+/* — Progress updates — */
 function updateItem(u){
-  return `<div class="item"><div class="row"><b>Week of ${fmtD(u.WeekOf)}</b><span class="pill">${pct(u.Percent)}</span><span class="muted small">posted ${h(u.SubmittedAt)} · ${h(u.Manpower)} workers</span></div>
+  return `<div class="item"><div class="row"><b>Update – ${fmtD(u.WeekOf)}</b><span class="pill">${pct(u.Percent)}</span><span class="muted small">posted ${h(u.SubmittedAt)} · ${h(u.Manpower)} workers</span></div>
     <p class="small"><b>Work done:</b> ${nl(u.WorkDone)}</p>${u.NextPlan?`<p class="small"><b>Next week:</b> ${nl(u.NextPlan)}</p>`:''}
     ${u.Delays?`<p class="small" style="color:var(--red)"><b>Delays:</b> ${nl(u.Delays)}</p>`:''}${media(u.Media,u.VideoLink)}</div>`;
 }
 function updatesTab(pk, st, own){
-  const can = !own && ['Awarded','Mobilized','Ongoing'].includes(pk.Status) && st.mob;
-  return `<div class="row" style="margin-bottom:10px"><span class="muted small">Contractors post an update every week with progress, work done, next week's plan and at least 3 photos.</span><span class="spacer"></span>
-    ${can?`<button class="btn" onclick="updateForm('${pk.PackageID}')">+ Submit weekly update</button>`:''}</div>
-    ${!own&&!st.mob?'<div class="infobox">Submit your mobilization details first (Overview tab).</div>':''}
+  const can = !own && ['Awarded','Mobilized','Ongoing'].includes(pk.Status) && (st.mob || pk.UpdateFreq==='One time');
+  const sc = st.sched||{};
+  return `<div class="row" style="margin-bottom:10px"><span class="small"><b>Required:</b> ${h(schedText(pk))}${sc.next?` · <span style="${sc.overdue?'color:var(--red);font-weight:600':''}">${sc.overdue?'overdue since':'next due'} ${fmtD(sc.next)}</span>`:''}</span>
+    ${own&&pk.Status!=='Turned Over'?`<button class="btn sm sec" onclick="schedForm('${pk.PackageID}')">Change</button>`:''}<span class="spacer"></span>
+    ${can?`<button class="btn" onclick="updateForm('${pk.PackageID}')">+ Submit progress update</button>`:''}</div>
+    ${!own&&!can&&!st.mob?'<div class="infobox">Submit your mobilization details first (Overview tab).</div>':''}
     ${st.ups.length?`<div class="feed">${st.ups.map(updateItem).join('')}</div>`:'<div class="empty">No updates yet.</div>'}`;
 }
 function updateForm(pkgId){
   const st = pkgStats(pkgOf(pkgId));
-  openModal('Weekly update', `<div class="f2"><div><label>Week of</label><input type="date" id="upWeek" value="${D().today}"></div>
+  openModal('Progress update', `${pkgOf(pkgId).UpdateNote?`<div class="infobox">Owner asks to include: ${h(pkgOf(pkgId).UpdateNote)}</div>`:''}<div class="f2"><div><label>Date</label><input type="date" id="upWeek" value="${D().today}"></div>
     <div><label>Overall % complete *</label><input type="number" id="upPct" min="0" max="100" value="${Math.round(st.reported)}"></div></div>
-    <label>Work done this week *</label><textarea id="upDone"></textarea>
-    <label>Plan for next week</label><textarea id="upNext"></textarea>
-    <div class="f2"><div><label>Manpower this week</label><input type="number" id="upMan" min="0" value="${h(st.mob?st.mob.Workers:'')}"></div>
+    <label>Work done *</label><textarea id="upDone"></textarea>
+    <label>Next plan</label><textarea id="upNext"></textarea>
+    <div class="f2"><div><label>Manpower</label><input type="number" id="upMan" min="0" value="${h(st.mob?st.mob.Workers:'')}"></div>
     <div><label>Video link (optional)</label><input type="url" id="upVid" placeholder="Google Drive / YouTube link"></div></div>
     <label>Delays or issues (if any)</label><textarea id="upDelay" placeholder="Leave blank if none"></textarea>
     <label>Photos (at least 3) and short videos *</label>${fileField('upFiles','image/*,video/*',true)}
     <p class="small muted">Videos: keep them under 1 minute, or paste a link above.</p>`,
     async()=>{ const f = $('upFiles').files; if([...f].filter(x=>/^image\//.test(x.type)).length<3) return toast('Please attach at least 3 photos.',true);
       if(!$('upDone').value.trim()) return toast('Please describe the work done.',true);
-      const files = await uploadField('upFiles',{type:'project',packageId:pkgId,kind:'Weekly updates/'+$('upWeek').value});
+      const files = await uploadField('upFiles',{type:'project',packageId:pkgId,kind:'Progress updates/'+$('upWeek').value});
       await act('Posting update…',()=>api('api_submitUpdate',S.token,{PackageID:pkgId,WeekOf:$('upWeek').value,Percent:$('upPct').value,WorkDone:$('upDone').value,NextPlan:$('upNext').value,
         Manpower:$('upMan').value,Delays:$('upDelay').value,VideoLink:$('upVid').value,Media:files})); toast('Update posted. The owner was notified.'); }, 'Post update','',true);
 }

@@ -43,7 +43,8 @@ var SCHEMA = {
                   'Status', 'Docs', 'Remarks', 'CreatedAt', 'AccreditedAt'],
   Projects:      ['ProjectID', 'OwnerID', 'Name', 'Branch', 'Address', 'StartDate', 'TargetOpening', 'Status', 'Notes', 'CreatedAt', 'Plans'],
   Packages:      ['PackageID', 'ProjectID', 'Trade', 'Scope', 'Status', 'AwardedSupplierID', 'AwardedQuoteID', 'ContractAmount',
-                  'DPRequired', 'RetentionPct', 'WarrantyMonths', 'AwardedAt', 'TurnedOverAt', 'WarrantyEnd', 'CreatedAt'],
+                  'DPRequired', 'RetentionPct', 'WarrantyMonths', 'AwardedAt', 'TurnedOverAt', 'WarrantyEnd', 'CreatedAt',
+                  'UpdateFreq', 'UpdateDay', 'UpdateDueDate', 'UpdateNote'],
   Invitations:   ['InviteID', 'PackageID', 'ProjectID', 'SupplierID', 'Brief', 'Attachments', 'Deadline', 'Status',
                   'SentAt', 'ViewedAt', 'RespondedAt', 'DeclineReason', 'SupplierEmail', 'SupplierName'],
   Quotes:        ['QuoteID', 'InviteID', 'PackageID', 'ProjectID', 'SupplierID', 'Rev', 'Lines', 'Total', 'DurationDays',
@@ -689,6 +690,7 @@ function api_award(token, packageId, quoteId, opts) {
     var amount = opts.amount ? num_(opts.amount) : num_(q.Total);
     update_('Packages', packageId, { Status: 'Awarded', AwardedSupplierID: q.SupplierID, AwardedQuoteID: quoteId, ContractAmount: amount,
       DPRequired: !!opts.dpRequired, RetentionPct: num_(opts.retentionPct), WarrantyMonths: num_(q.WarrantyMonths), AwardedAt: now_() });
+    update_('Packages', packageId, cleanSched_(opts.schedule));
     update_('Quotes', quoteId, { Status: 'Awarded', AwardStatus: 'Awarded', NotifiedAt: now_(), UpdatedAt: now_() });
     if (pr.Status === 'Planning') update_('Projects', pr.ProjectID, { Status: 'Ongoing' });
     // milestones template
@@ -703,7 +705,8 @@ function api_award(token, packageId, quoteId, opts) {
       '<p>Hi ' + esc_(win.ContactPerson || win.Company) + ',</p><p>We are pleased to inform you that your quotation has been <b>awarded</b>.</p>' +
       table_([['Project', pr.Name + (pr.Branch ? ' – ' + pr.Branch : '')], ['Location', pr.Address], ['Package', pk.Trade],
               ['Contract amount', peso_(amount)], ['Payment terms', q.PaymentTerms], ['Downpayment', opts.dpRequired ? 'Yes – you will be notified once it is sent' : 'None'],
-              ['Retention', num_(opts.retentionPct) ? num_(opts.retentionPct) + '% until turnover' : 'None']]) +
+              ['Retention', num_(opts.retentionPct) ? num_(opts.retentionPct) + '% until turnover' : 'None'],
+              ['Required progress updates', schedText_(pkg_(packageId))]]) +
       '<p><b>Next step:</b> ' + (opts.dpRequired ? 'wait for the downpayment, then submit your mobilization details in the portal.'
                                                  : 'log in and submit your mobilization date, manpower and materials.') + '</p>' + btn_('Open supplier portal')), quoteId);
     // regret notices to everyone else who quoted
@@ -862,13 +865,13 @@ function api_submitUpdate(token, d) {
   var pk = pkg_(d.PackageID); needAwardee_(me, pk);
   var media = d.Media || [];
   if (media.filter(function (f) { return /^image\//.test(f.mime || ''); }).length < 3) throw new Error('Please attach at least 3 photos.');
-  if (!str_(d.WorkDone)) throw new Error('Please describe the work done this week.');
+  if (!str_(d.WorkDone)) throw new Error('Please describe the work done.');
   var u = insert_('Updates', { UpdateID: id_('UPD'), PackageID: pk.PackageID, ProjectID: pk.ProjectID, SupplierID: me.id,
     WeekOf: str_(d.WeekOf, 10) || today_(), Percent: Math.max(0, Math.min(100, num_(d.Percent))), WorkDone: str_(d.WorkDone, 4000),
     NextPlan: str_(d.NextPlan, 4000), Manpower: num_(d.Manpower), Delays: str_(d.Delays, 3000), Media: media,
     VideoLink: str_(d.VideoLink, 500), SubmittedAt: now_() });
   if (['Awarded', 'Mobilized'].indexOf(pk.Status) >= 0) update_('Packages', pk.PackageID, { Status: 'Ongoing' });
-  notifyOwner_(pk.ProjectID, 'Weekly update: ' + pk.Trade + ' – ' + u.Percent + '%', '<p><b>' + esc_(me.name) + '</b> posted the weekly update for <b>' +
+  notifyOwner_(pk.ProjectID, 'Progress update: ' + pk.Trade + ' – ' + u.Percent + '%', '<p><b>' + esc_(me.name) + '</b> posted a progress update for <b>' +
     esc_(pk.Trade) + '</b>.</p>' + table_([['Progress', u.Percent + '%'], ['Work done', u.WorkDone], ['Next week', u.NextPlan],
     ['Manpower', u.Manpower], ['Delays', u.Delays || 'None']]) + photoLinks_(media) + btn_('View in portal'), u.UpdateID);
   return u;
@@ -976,9 +979,8 @@ function api_turnOver(token, packageId, remarks) {
 
 // ───────────────────────── Daily reminders (trigger) ─────────────────────────
 function dailyJobs() {
-  var today = today_(), dow = Number(Utilities.formatDate(new Date(), tz_(), 'u')); // 1 = Mon … 5 = Fri
-  var tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-  var tmr = Utilities.formatDate(tomorrow, tz_(), 'yyyy-MM-dd');
+  var today = today_();
+  var tmr = addDays_(today, 1);
   rows_('Invitations').forEach(function (i) {
     if (i.Status !== 'Invited' && i.Status !== 'Viewed') return;
     var s = find_('Suppliers', i.SupplierID) || (i.SupplierEmail ? { Email: i.SupplierEmail } : null), pk = find_('Packages', i.PackageID);
@@ -987,24 +989,89 @@ function dailyJobs() {
     else if (i.Deadline === tmr) mail_(s.Email, 'Reminder: quote due tomorrow – ' + pk.Trade, box_('Quote due tomorrow',
       '<p>Your quotation for <b>' + esc_(pk.Trade) + '</b> is due on <b>' + i.Deadline + '</b>.</p>' + btn_('Submit quote')), i.InviteID);
   });
-  var weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-  var cut = Utilities.formatDate(weekAgo, tz_(), 'yyyy-MM-dd');
   rows_('Packages').forEach(function (pk) {
-    if (['Mobilized', 'Ongoing'].indexOf(pk.Status) < 0) return;
-    var mob = find_('Mobilization', pk.PackageID);
-    if (!mob || mob.MobDate > today) return;
-    var last = rows_('Updates').filter(function (u) { return u.PackageID === pk.PackageID; })
-      .map(function (u) { return String(u.SubmittedAt).slice(0, 10); }).sort().pop() || '';
-    var late = (last || mob.MobDate) <= cut;
-    var s = find_('Suppliers', pk.AwardedSupplierID);
-    if (dow === 5 && (!last || last < Utilities.formatDate(new Date(Date.now() - 5 * 864e5), tz_(), 'yyyy-MM-dd')))
-      mail_(s.Email, 'Reminder: weekly update due – ' + pk.Trade, box_('Weekly update due',
-        '<p>Please submit this week\'s progress update for <b>' + esc_(pk.Trade) + '</b>: % complete, work done, next week\'s plan and at least 3 photos.</p>' +
+    if (['Awarded', 'Mobilized', 'Ongoing'].indexOf(pk.Status) < 0) return;
+    var st = updState_(pk, today);
+    if (!st.active) return;
+    var s = find_('Suppliers', pk.AwardedSupplierID); if (!s) return;
+    if (st.remind)
+      mail_(s.Email, 'Reminder: progress update due – ' + pk.Trade, box_('Progress update due',
+        '<p>Please submit your progress update for <b>' + esc_(pk.Trade) + '</b>' + (st.next ? ' (due <b>' + st.next + '</b>)' : '') + ': % complete, work done, next plan and at least 3 photos.</p>' +
+        '<p class="small">Required updates: ' + esc_(schedText_(pk)) + '</p>' + (pk.UpdateNote ? '<p>Owner\'s note: ' + esc_(pk.UpdateNote) + '</p>' : '') +
         btn_('Submit update')), pk.PackageID);
-    if (dow === 1 && late)
-      notifyOwner_(pk.ProjectID, 'No weekly update: ' + pk.Trade, '<p><b>' + esc_(s.Company) + '</b> has not submitted a weekly update for <b>' +
-        esc_(pk.Trade) + '</b> in the last 7 days (last update: ' + (last || 'none') + ').</p>', pk.PackageID);
+    if (st.alert)
+      notifyOwner_(pk.ProjectID, 'Progress update overdue: ' + pk.Trade, '<p><b>' + esc_(s.Company) + '</b> has not submitted the required progress update for <b>' +
+        esc_(pk.Trade) + '</b> (due ' + (st.next || '—') + ', last update: ' + (st.last || 'none') + ').</p><p>Required updates: ' + esc_(schedText_(pk)) + '</p>', pk.PackageID);
   });
+}
+
+// ───────────────────────── Required progress updates (set by the owner) ─────────────────────────
+var UPDATE_FREQS = ['Daily', 'Weekly', 'Every 2 weeks', 'One time', 'None'];
+var WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+function cleanSched_(sc) {
+  sc = sc || {};
+  var f = UPDATE_FREQS.indexOf(sc.freq) >= 0 ? sc.freq : 'Weekly';
+  return { UpdateFreq: f, UpdateDay: WEEKDAYS.indexOf(sc.day) >= 0 ? sc.day : 'Friday',
+           UpdateDueDate: /^\d{4}-\d{2}-\d{2}$/.test(sc.dueDate || '') ? sc.dueDate : '', UpdateNote: str_(sc.note, 1000) };
+}
+function schedText_(pk) {
+  var f = pk.UpdateFreq || 'Weekly';
+  if (f === 'Weekly' || f === 'Every 2 weeks') return f + ' (every ' + (pk.UpdateDay || 'Friday') + ')';
+  if (f === 'One time') return 'One time only' + (pk.UpdateDueDate ? ', due ' + pk.UpdateDueDate : '');
+  if (f === 'Daily') return 'Daily';
+  return 'No regular updates';
+}
+function addDays_(ymd, n) { var d = new Date(ymd + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+function daysDiff_(a, b) { return Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5); }
+function weekday_(ymd) { return WEEKDAYS[(new Date(ymd + 'T00:00:00Z').getUTCDay() + 6) % 7]; }
+// Same rules as pkgUpdateState() in public/index.html – keep both in sync.
+function updState_(pk, today) {
+  var ups = rows_('Updates').filter(function (u) { return u.PackageID === pk.PackageID; })
+    .map(function (u) { return String(u.SubmittedAt).slice(0, 10); }).sort();
+  var last = ups.length ? ups[ups.length - 1] : '';
+  var mob = find_('Mobilization', pk.PackageID);
+  return updateRule_(pk.UpdateFreq || 'Weekly', pk.UpdateDay || 'Friday', pk.UpdateDueDate, last, mob ? mob.MobDate : '', today);
+}
+function updateRule_(freq, day, dueDate, last, mobDate, today) {
+  var out = { active: false, next: '', overdue: false, remind: false, alert: false, last: last };
+  if (freq === 'None') return out;
+  if (freq === 'One time') {
+    if (last || !dueDate) return out;
+    out.active = true; out.next = dueDate; out.overdue = today > dueDate;
+    out.remind = today === dueDate || today === addDays_(dueDate, -1);
+    out.alert = today === addDays_(dueDate, 1);
+    return out;
+  }
+  if (!mobDate || mobDate > today) return out;           // periodic updates start at mobilization
+  out.active = true;
+  var ref = last || mobDate;
+  if (freq === 'Daily') {
+    out.next = last && last >= today ? addDays_(today, 1) : today;
+    out.remind = !(last && last >= today);
+    out.overdue = daysDiff_(ref, today) >= 2;
+    out.alert = daysDiff_(ref, today) >= 2 && (daysDiff_(ref, today) - 2) % 7 === 0;
+    return out;
+  }
+  var d = addDays_(ref, freq === 'Every 2 weeks' ? 8 : 1);
+  while (weekday_(d) !== day) d = addDays_(d, 1);
+  out.next = d;
+  out.remind = today >= d && weekday_(today) === day;
+  out.overdue = today > d;
+  out.alert = today > d && daysDiff_(d, today) % 7 === 1;
+  return out;
+}
+function api_setUpdateSchedule(token, packageId, sc) {
+  var me = auth_(token, ['admin', 'owner']);
+  var pk = pkg_(packageId); needOwner_(me, pk.ProjectID);
+  var u = update_('Packages', packageId, cleanSched_(sc));
+  if (pk.AwardedSupplierID) {
+    var s = find_('Suppliers', pk.AwardedSupplierID);
+    mail_(s.Email, 'Required progress updates – ' + pk.Trade, box_('Progress update schedule',
+      '<p>The owner set the required progress updates for <b>' + esc_(pk.Trade) + '</b>:</p>' +
+      table_([['Schedule', schedText_(u)], ['Note', u.UpdateNote || '—']]) +
+      '<p>You will get an email reminder when an update is due.</p>' + btn_('Open supplier portal')), packageId);
+  }
+  return u;
 }
 
 // ───────────────────────── Email helpers ─────────────────────────
