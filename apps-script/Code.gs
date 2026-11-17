@@ -59,12 +59,12 @@ var SCHEMA = {
   Suppliers:     ['SupplierID', 'Company', 'ContactPerson', 'Mobile', 'Email', 'TIN', 'Address', 'Trades', 'PinHash',
                   'Status', 'Docs', 'Remarks', 'CreatedAt', 'AccreditedAt', 'BankName', 'AccountNo', 'AccountName'],
   Projects:      ['ProjectID', 'OwnerID', 'Name', 'Branch', 'Address', 'StartDate', 'TargetOpening', 'Status', 'Notes', 'CreatedAt', 'Plans',
-                  'MapLink', 'SiteContact', 'SiteMobile'],
+                  'MapLink', 'SiteContact', 'SiteMobile', 'SiteContacts'],
   Packages:      ['PackageID', 'ProjectID', 'Trade', 'Scope', 'Status', 'AwardedSupplierID', 'AwardedQuoteID', 'ContractAmount',
                   'DPRequired', 'RetentionPct', 'WarrantyMonths', 'AwardedAt', 'TurnedOverAt', 'WarrantyEnd', 'CreatedAt',
                   'UpdateFreq', 'UpdateDay', 'UpdateDueDate', 'UpdateNote'],
   Invitations:   ['InviteID', 'PackageID', 'ProjectID', 'SupplierID', 'Brief', 'Attachments', 'Deadline', 'Status',
-                  'SentAt', 'ViewedAt', 'RespondedAt', 'DeclineReason', 'SupplierEmail', 'SupplierName'],
+                  'SentAt', 'ViewedAt', 'RespondedAt', 'DeclineReason', 'SupplierEmail', 'SupplierName', 'Contacts'],
   Quotes:        ['QuoteID', 'InviteID', 'PackageID', 'ProjectID', 'SupplierID', 'Rev', 'Lines', 'Total', 'DurationDays',
                   'PaymentTerms', 'WarrantyMonths', 'Notes', 'Attachments', 'IsFinal', 'Status', 'OwnerRemarks',
                   'CounterAmount', 'AwardStatus', 'NotifiedAt', 'CreatedAt', 'UpdatedAt',
@@ -86,7 +86,7 @@ var SCHEMA = {
   EmailLog:      ['At', 'To', 'Subject', 'Ref', 'Result']
 };
 
-var JSON_FIELDS = { Docs: 1, Attachments: 1, Lines: 1, Proof: 1, Photos: 1, Media: 1, Checklist: 1, Trades: 1, Plans: 1, DocsToProvide: 1 };
+var JSON_FIELDS = { Docs: 1, Attachments: 1, Lines: 1, Proof: 1, Photos: 1, Media: 1, Checklist: 1, Trades: 1, Plans: 1, DocsToProvide: 1, SiteContacts: 1, Contacts: 1 };
 
 // ───────────────────────── Web entry points ─────────────────────────
 function doGet() {
@@ -379,7 +379,7 @@ function api_data(token) {
   var seeProj = {}; out.Packages.forEach(function (p) { seeProj[p.ProjectID] = 1; });
   out.Projects = all.Projects.filter(function (p) { return seeProj[p.ProjectID]; }).map(function (p) {
     return { ProjectID: p.ProjectID, Name: p.Name, Branch: p.Branch, Address: p.Address, StartDate: p.StartDate, Status: p.Status,
-             TargetOpening: p.TargetOpening, MapLink: p.MapLink, SiteContact: p.SiteContact, SiteMobile: p.SiteMobile };
+             TargetOpening: p.TargetOpening, MapLink: p.MapLink };   // site contacts: only those chosen in their invitation
   });
   byPkg = function (r) { return awarded[r.PackageID]; };
   ['Payments', 'PayRequests', 'Mobilization', 'Milestones', 'Updates', 'Concerns', 'ChangeOrders', 'Turnover']
@@ -524,6 +524,12 @@ function api_saveProject(token, d) {
                  StartDate: str_(d.StartDate, 10), TargetOpening: str_(d.TargetOpening, 10), Notes: str_(d.Notes, 2000),
                  MapLink: /^https?:\/\//i.test(str_(d.MapLink, 500)) ? str_(d.MapLink, 500) : '', SiteContact: str_(d.SiteContact, 200),
                  SiteMobile: str_(d.SiteMobile, 40) };
+    if (d.SiteContacts) {   // several site contacts; the first one also fills the old single-contact columns
+      base.SiteContacts = d.SiteContacts.map(function (c) { return { name: str_(c.name, 100), mobile: str_(c.mobile, 40), role: str_(c.role, 60) }; })
+        .filter(function (c) { return c.name || c.mobile; }).slice(0, 10);
+      base.SiteContact = base.SiteContacts[0] ? base.SiteContacts[0].name : '';
+      base.SiteMobile = base.SiteContacts[0] ? base.SiteContacts[0].mobile : '';
+    }
     if (!base.Name) throw new Error('Project name is required.');
     if (d.ProjectID) {
       needOwner_(me, d.ProjectID);
@@ -584,6 +590,8 @@ function api_inviteProject(token, projectId, d) {
     var pick = (d.planIds || []).map(String);
     var plans = (pr.Plans || []).filter(function (f) { return pick.indexOf(String(f.id)) >= 0; });
     var att = plans.concat(d.attachments || []);   // the invitation keeps exactly what was shared
+    var allC = contactsOf_(pr);
+    var contacts = d.contactIdx ? allC.filter(function (c, i) { return d.contactIdx.indexOf(i) >= 0; }) : allC;
     var made = [];
     list.forEach(function (t) {
       var newPk = [];
@@ -595,7 +603,7 @@ function api_inviteProject(token, projectId, d) {
         if (dup) return;
         made.push(insert_('Invitations', { InviteID: id_('INV'), PackageID: pk.PackageID, ProjectID: projectId,
           SupplierID: t.sup ? t.sup.SupplierID : '', SupplierEmail: t.email, SupplierName: t.name || '',
-          Brief: str_(d.brief, 4000), Attachments: att, Deadline: d.deadline, Status: 'Invited', SentAt: now_(),
+          Brief: str_(d.brief, 4000), Attachments: att, Contacts: contacts, Deadline: d.deadline, Status: 'Invited', SentAt: now_(),
           ViewedAt: '', RespondedAt: '', DeclineReason: '' }));
         if (pk.Status === 'Draft') update_('Packages', pk.PackageID, { Status: 'Quoting' });
         newPk.push(pk);
@@ -607,7 +615,7 @@ function api_inviteProject(token, projectId, d) {
       mail_(t.email, 'Invitation to quote: ' + (pr.Branch || pr.Name), box_('You are invited to quote',
         '<p>Hi ' + esc_(t.name || '') + ',</p><p>You are invited to submit a quotation for the following:</p>' +
         table_([['Project', pr.Name + (pr.Branch ? ' – ' + pr.Branch : '')], ['Location', pr.Address],
-                ['Site contact', [pr.SiteContact, pr.SiteMobile].filter(String).join(' – ')],
+                ['Site contact' + (contacts.length > 1 ? 's' : ''), contacts.map(contactLine_).join('\n')],
                 ['Package(s) to quote', newPk.map(function (p) { return p.Trade + (p.Scope ? ' – ' + p.Scope : ''); }).join('\n')],
                 ['Brief', d.brief], ['Quote deadline', d.deadline]]) +
         (pr.MapLink ? '<p>📍 <a href="' + esc_(pr.MapLink) + '"><b>Open site location in Google Maps</b></a></p>' : '') +
@@ -630,6 +638,11 @@ function linkInvites_(s) {
     if (!i.SupplierID && String(i.SupplierEmail).toLowerCase() === email) update_('Invitations', i.InviteID, { SupplierID: s.SupplierID });
   });
 }
+function contactsOf_(pr) {
+  if (pr.SiteContacts && pr.SiteContacts.length) return pr.SiteContacts;
+  return pr.SiteContact || pr.SiteMobile ? [{ name: pr.SiteContact, mobile: pr.SiteMobile, role: '' }] : [];
+}
+function contactLine_(c) { return (c.name || '') + (c.role ? ' (' + c.role + ')' : '') + (c.mobile ? ' – ' + c.mobile : ''); }
 function api_savePlans(token, projectId, plans) {
   var me = auth_(token, ['admin', 'owner']);
   needOwner_(me, projectId);

@@ -90,6 +90,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--orange-line);bor
   table.rt .bar{min-width:120px}
   .step{min-width:58px;font-size:10px}
   header .t{font-size:15px}
+  .ctRow{flex-wrap:wrap!important}.ctRow input{flex:1 1 40%}
   .tabs{scrollbar-width:none}
 }
 .back{background:none;border:0;color:var(--orange-deep);cursor:pointer;padding:0;font-weight:600;margin-bottom:6px}
@@ -135,6 +136,16 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--orange-line);bor
 #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#2B2B2B;color:#fff;padding:10px 16px;border-radius:10px;z-index:70;max-width:90%;font-size:14px}
 #toast.err{background:var(--red)}
 .filelist{font-size:13px;color:var(--muted);margin-top:4px}
+.ctRow input{min-width:0}
+.fdrop{margin-top:10px;border:1px solid var(--line);border-radius:10px;background:#FBFBF9}
+.fdrop summary{cursor:pointer;padding:10px 12px;font-weight:600;font-size:14px;list-style:none;display:flex;gap:6px;align-items:center}
+.fdrop summary::-webkit-details-marker{display:none}
+.fdrop summary::after{content:"▾";margin-left:auto;color:var(--muted);transition:transform .15s}
+.fdrop[open] summary::after{transform:rotate(180deg)}
+.fdrop .flist{border-top:1px solid var(--line);max-height:320px;overflow-y:auto}
+.fdrop .flist a{display:flex;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--line);text-decoration:none;color:var(--ink);font-size:14px}
+.fdrop .flist a:last-child{border-bottom:0}.fdrop .flist a:hover{background:var(--orange-soft)}
+.fdrop .fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .copy{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#F4F4F2;padding:3px 6px;border-radius:5px;word-break:break-all}
 </style>
 </head>
@@ -473,9 +484,9 @@ function supplierHome(){
     const atts = []; list.forEach(i=>(i.Attachments||[]).forEach(f=>{ if(!atts.some(a=>a.id===f.id)) atts.push(f); }));
     const brief = list.find(i=>i.Brief); const dl = list.map(i=>i.Deadline).sort()[0];
     return `<div class="card"><div class="row"><h3 style="margin:0">${h(pr.Name)}${pr.Branch?' – '+h(pr.Branch):''}</h3><span class="spacer"></span><span class="small muted">Quote due ${fmtD(dl)}</span></div>
-      <div class="muted small">${h(pr.Address)}${pr.StartDate?' · construction start '+fmtD(pr.StartDate):''}</div>${siteInfo(pr)}
+      <div class="muted small">${h(pr.Address)}${pr.StartDate?' · construction start '+fmtD(pr.StartDate):''}</div>${siteInfo(pr, invContacts(list))}
       ${brief?`<p class="small"><b>Brief:</b> ${nl(brief.Brief)}</p>`:''}
-      <h3 style="margin-top:12px">Plans & documents shared with you</h3>${media(atts)||'<p class="small muted">No plans attached.</p>'}
+      <h3 style="margin-top:12px">Plans & documents shared with you</h3>${fileDrop('inv'+pid, atts, 'Show plans & documents')||'<p class="small muted">No plans attached.</p>'}
       <h3 style="margin-top:14px">Package(s) to quote</h3>
       <div class="tw"><table>${list.map(i=>{ const pk=pkgOf(i.PackageID), late=i.Deadline<D().today;
         return `<tr><td><span class="pill">${h(pk.Trade)}</span> ${badge(i.Status)}${pk.Scope?`<div class="small" style="margin-top:4px">${nl(pk.Scope)}</div>`:''}</td>
@@ -694,11 +705,11 @@ function projectForm(id){
     <div class="row" style="flex-wrap:nowrap"><input type="url" id="pjMap" value="${h(p.MapLink)}" placeholder="https://maps.app.goo.gl/…">
       <button class="btn sm sec nowrap" onclick="window.open('https://www.google.com/maps/search/'+encodeURIComponent($('pjAddr').value||''),'_blank')">Find on map</button></div>
     <p class="small muted" style="margin:4px 0 0">In Google Maps, find the site → <b>Share</b> → <b>Copy link</b>, then paste it here.</p>
-    <div class="f2"><div><label>Site visit contact person</label><input type="text" id="pjContact" value="${h(p.SiteContact)}"></div>
-    <div><label>Contact mobile</label><input type="text" id="pjMobile" inputmode="tel" value="${h(p.SiteMobile)}"></div></div>
+    <label>Site visit contact person(s)</label><div id="pjContacts">${(contactsOf(p).length?contactsOf(p):[{}]).map(contactRow).join('')}</div>
+    <button class="btn sm sec" style="margin-top:6px" onclick="document.getElementById('pjContacts').insertAdjacentHTML('beforeend',contactRow({}))">+ Add another contact</button>
     <div class="f2"><div><label>Construction start (target)</label><input type="date" id="pjStart" value="${h(p.StartDate)}"></div><div><label>Target opening</label><input type="date" id="pjOpen" value="${h(p.TargetOpening)}"></div></div>
     <label>Notes</label><textarea id="pjNotes">${h(p.Notes)}</textarea>`,
-    ()=>act('Saving…',async()=>{ const r = await api('api_saveProject',S.token,{ProjectID:id,OwnerID:$('pjOwner')&&$('pjOwner').value,Name:$('pjName').value,Branch:$('pjBranch').value,Address:$('pjAddr').value,StartDate:$('pjStart').value,TargetOpening:$('pjOpen').value,Notes:$('pjNotes').value,MapLink:$('pjMap').value.trim(),SiteContact:$('pjContact').value,SiteMobile:$('pjMobile').value});
+    ()=>act('Saving…',async()=>{ const r = await api('api_saveProject',S.token,{ProjectID:id,OwnerID:$('pjOwner')&&$('pjOwner').value,Name:$('pjName').value,Branch:$('pjBranch').value,Address:$('pjAddr').value,StartDate:$('pjStart').value,TargetOpening:$('pjOpen').value,Notes:$('pjNotes').value,MapLink:$('pjMap').value.trim(),SiteContacts:readContacts()});
       if($('pjMap').value.trim() && !/^https?:\/\//i.test($('pjMap').value.trim())) toast('The map link must start with https:// – it was not saved.',true);
       if(!id) S.view={name:'project',id:r.ProjectID}; }));
 }
@@ -724,7 +735,7 @@ function projectView(id){
       <button class="btn sec" onclick="projectForm('${pr.ProjectID}')">Edit</button><button class="btn sec" onclick="packageForm('${pr.ProjectID}')">+ Add package</button>
       <button class="btn" onclick="inviteForm('${pr.ProjectID}')">✉ Invite supplier to quote</button></div>
     <p class="muted small">${h(pr.Address)}${own} · Start ${fmtD(pr.StartDate)} · Target opening ${fmtD(pr.TargetOpening)}</p>${siteInfo(pr)}
-    ${!pr.MapLink||!pr.SiteContact?`<div class="infobox">Add the <b>Google Maps location</b> and <b>site visit contact</b> (Edit) so they're included in supplier invitations.</div>`:''}
+    ${!pr.MapLink||!contactsOf(pr).length?`<div class="infobox">Add the <b>Google Maps location</b> and <b>site visit contact</b> (Edit) so they're included in supplier invitations.</div>`:''}
     <div class="kpis">
       <div class="kpi"><div class="l">Total contract</div><div class="v">${peso(s.contract)}</div></div>
       <div class="kpi"><div class="l">Paid</div><div class="v">${peso(s.paid)}</div></div>
@@ -811,17 +822,34 @@ function quotingSection(pk){
     <div style="margin-top:10px">${inv.length?`<div class="tw"><table><tr><th>Supplier</th><th>Invitation</th><th>Deadline</th><th class="num">Quote</th><th class="num">Duration</th><th>Quote status</th><th></th></tr>${rows}</table></div>`
       :`<div class="empty">No suppliers invited yet. Click <b>Invite suppliers to quote</b>.</div>`}</div>`;
 }
-function siteInfo(pr){
+function contactsOf(pr){ pr=pr||{}; if(pr.SiteContacts&&pr.SiteContacts.length) return pr.SiteContacts; return pr.SiteContact||pr.SiteMobile ? [{name:pr.SiteContact,mobile:pr.SiteMobile,role:''}] : []; }
+const contactRow = c => `<div class="row ctRow" style="flex-wrap:nowrap;margin-bottom:6px"><input type="text" class="ctName" placeholder="Name" value="${h(c.name||'')}">
+  <input type="text" class="ctMobile" placeholder="Mobile" inputmode="tel" value="${h(c.mobile||'')}"><input type="text" class="ctRole" placeholder="Role (e.g. foreman, owner)" value="${h(c.role||'')}">
+  <button type="button" class="btn sm sec" onclick="this.closest('.ctRow').remove()">×</button></div>`;
+const readContacts = () => [...document.querySelectorAll('#pjContacts .ctRow')].map(r=>({name:r.querySelector('.ctName').value.trim(),mobile:r.querySelector('.ctMobile').value.trim(),role:r.querySelector('.ctRole').value.trim()})).filter(c=>c.name||c.mobile);
+const contactHtml = c => `<b>${h(c.name||'')}</b>${c.role?` <span class="muted">(${h(c.role)})</span>`:''} ${c.mobile?`<a href="tel:${h(c.mobile)}">${h(c.mobile)}</a>`:''}`;
+function siteInfo(pr, contacts){
+  contacts = contacts || contactsOf(pr);
   const parts = [];
   if(pr.MapLink) parts.push(`<a href="${h(pr.MapLink)}" target="_blank" rel="noopener">📍 Open in Google Maps</a>`);
-  if(pr.SiteContact||pr.SiteMobile) parts.push(`Site contact: <b>${h(pr.SiteContact||'')}</b> ${pr.SiteMobile?`<a href="tel:${h(pr.SiteMobile)}">${h(pr.SiteMobile)}</a>`:''}`);
+  if(contacts.length) parts.push(`Site contact${contacts.length>1?'s':''}: ${contacts.map(contactHtml).join(' · ')}`);
   return parts.length ? `<p class="small">${parts.join(' · ')}</p>` : '';
 }
+/* Collapsible file list ("dropdown"): closed by default, remembers if you opened it. */
+S.openDrop = {};
+function fileDrop(key, files, label){
+  if(!files.length) return '';
+  const icon = f => /^image\//.test(f.mime||'') ? '🖼️' : /^video\//.test(f.mime||'') ? '🎬' : /pdf/i.test(f.mime||f.name||'') ? '📕' : '📄';
+  return `<details class="fdrop" ${S.openDrop[key]?'open':''} ontoggle="S.openDrop['${key}']=this.open">
+    <summary>📁 ${h(label||'Files')} <span class="muted">(${files.length})</span></summary>
+    <div class="flist">${files.map(f=>`<a href="${h(f.url)}" target="_blank" rel="noopener"><span>${icon(f)}</span><span class="fn">${h(f.name)}</span><span class="small muted nowrap">Open ↗</span></a>`).join('')}</div></details>`;
+}
+function invContacts(invs){ const out=[]; invs.forEach(i=>(i.Contacts||[]).forEach(c=>{ if(!out.some(x=>x.name===c.name&&x.mobile===c.mobile)) out.push(c); })); return out; }
 function plansCard(pr){
   const plans = pr.Plans||[];
   return `<div class="card"><div class="row"><h3 style="margin:0">Plans & documents</h3><span class="muted small">${plans.length} file(s) · shared with invited suppliers</span><span class="spacer"></span>
     <button class="btn sm sec" onclick="uploadPlans('${pr.ProjectID}')">⬆ Upload plans</button>${plans.length?`<button class="btn sm sec" onclick="managePlans('${pr.ProjectID}')">Remove files</button>`:''}</div>
-    ${media(plans)||'<p class="small muted" style="margin:8px 0 0">Upload the floor plan, electrical/plumbing layouts, perspectives, site photos… Invited suppliers see them in their portal and in the invitation email.</p>'}</div>`;
+    ${fileDrop('plans'+pr.ProjectID, plans, 'Show plans & documents')||'<p class="small muted" style="margin:8px 0 0">Upload the floor plan, electrical/plumbing layouts, perspectives, site photos… Invited suppliers see them in their portal and in the invitation email.</p>'}</div>`;
 }
 function uploadPlans(pid){
   openModal('Upload plans & documents', `<p class="small muted">PDF, images or CAD exports. You can select many files at once.</p>${fileField('plFiles','image/*,application/pdf,.dwg,.dxf,.zip,.xlsx,.docx',true)}`,
@@ -857,7 +885,10 @@ function inviteForm(pid, prePkg){
     <label class="small" style="font-weight:400">Additional files for this invitation</label>${fileField('ivFiles','image/*,application/pdf,.dwg,.dxf,.zip',true)}
     <label>4. Brief / instructions</label><textarea id="ivBrief" placeholder="e.g. Please include materials and labor. Quote per item."></textarea>
     <div class="f2"><div><label>Quote deadline *</label><input type="date" id="ivDl" value="${d.toISOString().slice(0,10)}"></div><div><label>Site visit schedule (optional)</label><input type="text" id="ivVisit" placeholder="e.g. Nov 20, 10am"></div></div>
-    ${pr.MapLink||pr.SiteContact?`<p class="small">Included in the email: ${pr.MapLink?'📍 map location':''}${pr.MapLink&&pr.SiteContact?' · ':''}${pr.SiteContact?'site contact '+h(pr.SiteContact)+' '+h(pr.SiteMobile||''):''}</p>`:`<div class="infobox">Tip: add the Google Maps link and site contact in the project (Edit) so suppliers get them too.</div>`}
+    <label>5. Site contact(s) the supplier can call</label>
+    ${contactsOf(pr).length?contactsOf(pr).map((c,i)=>`<label class="chk"><input type="checkbox" name="ivCt" value="${i}" ${i===0?'checked':''}> <span>${contactHtml(c)}</span></label>`).join('')
+      :`<div class="infobox">No site contacts yet – add them in the project (Edit).</div>`}
+    ${pr.MapLink?'<p class="small">📍 The Google Maps location is included in the email.</p>':`<div class="infobox">Tip: add the Google Maps link in the project (Edit) so suppliers get it too.</div>`}
     <p class="small muted">Each supplier gets an email with the packages, plans and a link. New suppliers register with that same email to see the invitation.</p>`,
     async()=>{
       const emails = [...document.querySelectorAll('#ivRows .ivRow')].map(r=>({email:r.querySelector('.ivEmail').value.trim(),name:r.querySelector('.ivName').value.trim()})).filter(e=>e.email);
@@ -867,7 +898,7 @@ function inviteForm(pid, prePkg){
       if(!pkIds.length) return toast('Tick at least one package.',true);
       const att = await uploadField('ivFiles',{type:'project',projectId:pid,kind:'Invitation files'});
       const brief = $('ivBrief').value + ($('ivVisit').value?`\nSite visit: ${$('ivVisit').value}`:'');
-      await act('Sending invitations…',()=>api('api_inviteProject',S.token,pid,{packageIds:pkIds,supplierIds:ids,emails,brief,deadline:$('ivDl').value,attachments:att,planIds:[...document.querySelectorAll('input[name=ivPlan]:checked')].map(x=>x.value)}));
+      await act('Sending invitations…',()=>api('api_inviteProject',S.token,pid,{packageIds:pkIds,supplierIds:ids,emails,brief,deadline:$('ivDl').value,attachments:att,planIds:[...document.querySelectorAll('input[name=ivPlan]:checked')].map(x=>x.value),contactIdx:[...document.querySelectorAll('input[name=ivCt]:checked')].map(x=>+x.value)}));
       toast('Invitation sent.'); }, 'Send invitation','',true);
 }
 function extendInvite(id){ openModal('Extend quote deadline', `<label>New deadline</label><input type="date" id="exDl">`, ()=>act('Saving…',()=>api('api_extendInvite',S.token,id,$('exDl').value))); }
@@ -932,7 +963,7 @@ function overviewTab(pk, st, own){
       ${q.BankName?`<p><b>Pay to:</b> ${h(q.BankName)} · ${h(q.AccountNo)} · ${h(q.AccountName)}</p>`:''}<button class="btn sm sec" onclick="viewQuote('${q.QuoteID}')">View awarded quote</button>`:''}
       ${own&&!where('Payments',p=>p.PackageID===pk.PackageID).length?` <button class="btn sm sec" onclick="cancelAward('${pk.PackageID}')">Cancel award</button>`:''}
       ${pk.TurnedOverAt?`<p class="okbox">Turned over ${h(pk.TurnedOverAt)}${pk.WarrantyEnd?' · warranty until '+fmtD(pk.WarrantyEnd):''}</p>`:''}</div></div></div>
-    ${shared.length?`<div class="card"><h3>Plans & documents shared with you</h3>${media(shared)}</div>`:''}
+    ${!own&&(shared.length||proj(pk.ProjectID).MapLink)?`<div class="card"><h3>Site & plans</h3>${siteInfo(proj(pk.ProjectID), invContacts(where('Invitations',i=>i.ProjectID===pk.ProjectID)))}${fileDrop('sh'+pk.PackageID, shared, 'Show plans & documents')}</div>`:''}
     ${st.ups[0]?`<h2>Latest update</h2>${updateItem(st.ups[0])}`:''}`;
 }
 function mobForm(pkgId){
