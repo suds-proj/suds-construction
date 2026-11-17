@@ -43,11 +43,10 @@ Every push to GitHub redeploys automatically.
 
 ### 3. Odoo portal (owners)
 1. **Studio** on Contacts → add a **Text** field labeled **Construction Key** (technical name `x_studio_construction_key`).
-2. Create a contact tag **Construction Owner**.
-3. Add the view in `odoo/portal-construction-view.xml` (steps are inside the file). Replace the Cloudflare link in it.
-4. In the app (Admin → **Owners → + Add owner**), add the owner. Click **Copy** on their key and paste it into the owner's Odoo contact (**Construction Key**), and give the contact the **Construction Owner** tag.
+2. Add the card in `odoo/portal-construction-view.xml` to the **Franchise Quick Links** view (steps are inside the file).
+3. In the app (Admin → **Owners → + Add owner**), add the owner. Click **Copy** on their key and paste it into the owner's Odoo contact (**Construction Key**).
 
-The owner now sees *Construction Monitoring* on their portal home page.
+The owner now sees a *Construction Monitoring* card in Franchise Quick Links on their portal home page.
 
 ### 4. Daily reminders
 `setup()` already created a daily 8 AM trigger (`dailyJobs`):
