@@ -41,11 +41,11 @@ var SCHEMA = {
   Owners:        ['OwnerID', 'Name', 'Email', 'Mobile', 'OdooKey', 'Active', 'CreatedAt'],
   Suppliers:     ['SupplierID', 'Company', 'ContactPerson', 'Mobile', 'Email', 'TIN', 'Address', 'Trades', 'PinHash',
                   'Status', 'Docs', 'Remarks', 'CreatedAt', 'AccreditedAt'],
-  Projects:      ['ProjectID', 'OwnerID', 'Name', 'Branch', 'Address', 'StartDate', 'TargetOpening', 'Status', 'Notes', 'CreatedAt'],
+  Projects:      ['ProjectID', 'OwnerID', 'Name', 'Branch', 'Address', 'StartDate', 'TargetOpening', 'Status', 'Notes', 'CreatedAt', 'Plans'],
   Packages:      ['PackageID', 'ProjectID', 'Trade', 'Scope', 'Status', 'AwardedSupplierID', 'AwardedQuoteID', 'ContractAmount',
                   'DPRequired', 'RetentionPct', 'WarrantyMonths', 'AwardedAt', 'TurnedOverAt', 'WarrantyEnd', 'CreatedAt'],
   Invitations:   ['InviteID', 'PackageID', 'ProjectID', 'SupplierID', 'Brief', 'Attachments', 'Deadline', 'Status',
-                  'SentAt', 'ViewedAt', 'RespondedAt', 'DeclineReason'],
+                  'SentAt', 'ViewedAt', 'RespondedAt', 'DeclineReason', 'SupplierEmail', 'SupplierName'],
   Quotes:        ['QuoteID', 'InviteID', 'PackageID', 'ProjectID', 'SupplierID', 'Rev', 'Lines', 'Total', 'DurationDays',
                   'PaymentTerms', 'WarrantyMonths', 'Notes', 'Attachments', 'IsFinal', 'Status', 'OwnerRemarks',
                   'CounterAmount', 'AwardStatus', 'NotifiedAt', 'CreatedAt', 'UpdatedAt'],
@@ -66,7 +66,7 @@ var SCHEMA = {
   EmailLog:      ['At', 'To', 'Subject', 'Ref', 'Result']
 };
 
-var JSON_FIELDS = { Docs: 1, Attachments: 1, Lines: 1, Proof: 1, Photos: 1, Media: 1, Checklist: 1, Trades: 1 };
+var JSON_FIELDS = { Docs: 1, Attachments: 1, Lines: 1, Proof: 1, Photos: 1, Media: 1, Checklist: 1, Trades: 1, Plans: 1 };
 
 // ───────────────────────── Web entry points ─────────────────────────
 function doGet() {
@@ -115,6 +115,7 @@ function ss_() {
   var id = props_().getProperty('SHEET_ID');
   return id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
 }
+var _heads = {};
 function sh_(name) {
   var ss = ss_(), s = ss.getSheetByName(name);
   if (!s) {
@@ -123,6 +124,19 @@ function sh_(name) {
     s.setFrozenRows(1);
   }
   return s;
+}
+// Real column order of the sheet (adds any new columns from SCHEMA at the end, so old sheets keep working).
+function head_(name) {
+  if (_heads[name]) return _heads[name];
+  var s = sh_(name), last = Math.max(1, s.getLastColumn());
+  var h = (s.getRange(1, 1, 1, last).getValues()[0] || []).map(String).filter(function (x) { return x; });
+  var missing = SCHEMA[name].filter(function (k) { return h.indexOf(k) < 0; });
+  if (missing.length) {
+    s.getRange(1, h.length + 1, 1, missing.length).setValues([missing]).setFontWeight('bold').setBackground('#FFF0E3');
+    h = h.concat(missing);
+  }
+  _heads[name] = h;
+  return h;
 }
 function tz_() { return Session.getScriptTimeZone() || 'Asia/Manila'; }
 function now_() { return Utilities.formatDate(new Date(), tz_(), "yyyy-MM-dd HH:mm"); }
@@ -146,7 +160,7 @@ function ser_(k, v) {
 }
 function rows_(name) {
   if (_rows[name]) return _rows[name];
-  var s = sh_(name), vals = s.getDataRange().getValues(), head = vals.shift();
+  var head = head_(name), s = sh_(name), vals = s.getDataRange().getValues(); vals.shift();
   var out = [];
   vals.forEach(function (r, i) {
     if (r[0] === '' || r[0] === null) return;
@@ -164,14 +178,14 @@ function find_(name, id) {
 }
 function insert_(name, obj) {
   var s = sh_(name);
-  s.appendRow(SCHEMA[name].map(function (k) { return ser_(k, obj[k]); }));
+  s.appendRow(head_(name).map(function (k) { return ser_(k, obj[k]); }));
   delete _rows[name];
   return obj;
 }
 function update_(name, id, patch) {
   var r = find_(name, id);
   if (!r) throw new Error(name + ' record not found: ' + id);
-  var s = sh_(name), head = SCHEMA[name];
+  var s = sh_(name), head = head_(name);
   Object.keys(patch).forEach(function (k) {
     var c = head.indexOf(k);
     if (c < 0) throw new Error('Unknown field ' + k);
@@ -245,6 +259,7 @@ function api_supplierLogin(email, pin) {
   email = str_(email, 200).toLowerCase();
   var s = rows_('Suppliers').filter(function (r) { return String(r.Email).toLowerCase() === email; })[0];
   if (!s || s.PinHash !== hash_(str_(pin, 20))) throw new Error('Wrong email or PIN.');
+  linkInvites_(s);
   var me = { role: 'supplier', id: s.SupplierID, name: s.Company, email: s.Email };
   return { token: newSession_(me), me: me };
 }
@@ -268,6 +283,7 @@ function api_supplierRegister(d) {
       '<p>Log in with your email and this PIN to upload your documents (business permit, DTI/SEC, BIR 2303).</p>'), s.SupplierID);
     mail_(adminEmail_(), 'New supplier registration: ' + s.Company, box_('New supplier registration',
       '<p><b>' + esc_(s.Company) + '</b> (' + esc_((s.Trades || []).join(', ')) + ') registered and is waiting for accreditation.</p>'), s.SupplierID);
+    linkInvites_(s);
     var me = { role: 'supplier', id: s.SupplierID, name: s.Company, email: s.Email };
     return { token: newSession_(me), me: me, pin: pin };
   });
@@ -327,7 +343,8 @@ function api_data(token) {
   });
   var seeProj = {}; out.Packages.forEach(function (p) { seeProj[p.ProjectID] = 1; });
   out.Projects = all.Projects.filter(function (p) { return seeProj[p.ProjectID]; }).map(function (p) {
-    return { ProjectID: p.ProjectID, Name: p.Name, Branch: p.Branch, Address: p.Address, StartDate: p.StartDate, Status: p.Status };
+    return { ProjectID: p.ProjectID, Name: p.Name, Branch: p.Branch, Address: p.Address, StartDate: p.StartDate, Status: p.Status,
+             TargetOpening: p.TargetOpening, Plans: p.Plans || [] };
   });
   byPkg = function (r) { return awarded[r.PackageID]; };
   ['Payments', 'PayRequests', 'Mobilization', 'Milestones', 'Updates', 'Concerns', 'ChangeOrders', 'Turnover']
@@ -484,39 +501,87 @@ function api_savePackage(token, d) {
 }
 
 // ───────────────────────── Invitations ─────────────────────────
-function api_invite(token, packageId, supplierIds, brief, deadline, attachments) {
+// Invite suppliers (registered or just an email) to quote one or more packages of a project.
+// d = { packageIds:[], supplierIds:[], emails:[{email,name}], brief, deadline, attachments:[], includePlans:true }
+function api_inviteProject(token, projectId, d) {
   var me = auth_(token, ['admin', 'owner']);
-  var pk = pkg_(packageId); needOwner_(me, pk.ProjectID);
-  if (pk.AwardedSupplierID) throw new Error('This package is already awarded.');
-  if (!supplierIds || !supplierIds.length) throw new Error('Please choose at least one supplier.');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline || '')) throw new Error('Please set the quote deadline.');
-  var pr = project_(pk.ProjectID);
+  needOwner_(me, projectId);
+  d = d || {};
+  var pr = project_(projectId);
+  var pkgs = (d.packageIds || []).map(pkg_).filter(function (p) { return p.ProjectID === projectId && !p.AwardedSupplierID; });
+  if (!pkgs.length) throw new Error('Please tick at least one package to be quoted.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d.deadline || '')) throw new Error('Please set the quote deadline.');
   return withLock_(function () {
-    var made = [];
-    supplierIds.forEach(function (sid) {
+    // who: registered suppliers + typed emails (matched to an existing supplier when the email is registered)
+    var targets = {};
+    (d.supplierIds || []).forEach(function (sid) {
       var s = find_('Suppliers', sid);
-      if (!s || s.Status !== 'Accredited') return;
-      var existing = rows_('Invitations').filter(function (i) { return i.PackageID === packageId && i.SupplierID === sid; })[0];
-      if (existing && existing.Status !== 'Declined' && existing.Status !== 'Expired') return;
-      var inv = insert_('Invitations', { InviteID: id_('INV'), PackageID: packageId, ProjectID: pk.ProjectID, SupplierID: sid,
-        Brief: str_(brief, 4000), Attachments: attachments || [], Deadline: deadline, Status: 'Invited', SentAt: now_(),
-        ViewedAt: '', RespondedAt: '', DeclineReason: '' });
-      made.push(inv);
-      mail_(s.Email, 'Invitation to quote: ' + pk.Trade + ' – ' + (pr.Branch || pr.Name), box_('You are invited to quote',
-        '<p>Hi ' + esc_(s.ContactPerson || s.Company) + ',</p><p>You are invited to submit a quotation for:</p>' +
-        table_([['Project', pr.Name + (pr.Branch ? ' – ' + pr.Branch : '')], ['Location', pr.Address], ['Package', pk.Trade],
-                ['Scope', pk.Scope], ['Brief', brief], ['Quote deadline', deadline]]) +
-        '<p>Please log in to the supplier portal to view the details and submit your quote or decline.</p>' + btn_('Open supplier portal')), inv.InviteID);
+      if (s) targets[String(s.Email).toLowerCase()] = { email: String(s.Email).toLowerCase(), name: s.Company, sup: s };
     });
-    if (!made.length) throw new Error('No new invitations were sent (already invited or not accredited).');
-    if (pk.Status === 'Draft') update_('Packages', packageId, { Status: 'Quoting' });
+    (d.emails || []).forEach(function (e) {
+      var email = str_(e.email, 200).toLowerCase();
+      if (!email) return;
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Invalid email: ' + email);
+      var s = rows_('Suppliers').filter(function (r) { return String(r.Email).toLowerCase() === email; })[0];
+      targets[email] = { email: email, name: s ? s.Company : str_(e.name, 200), sup: s || null };
+    });
+    var list = Object.keys(targets).map(function (k) { return targets[k]; });
+    if (!list.length) throw new Error('Please enter a supplier email or choose a supplier.');
+    var att = d.attachments || [], plans = d.includePlans === false ? [] : (pr.Plans || []);
+    var made = [];
+    list.forEach(function (t) {
+      var newPk = [];
+      pkgs.forEach(function (pk) {
+        var dup = rows_('Invitations').filter(function (i) {
+          return i.PackageID === pk.PackageID && (t.sup ? i.SupplierID === t.sup.SupplierID : String(i.SupplierEmail).toLowerCase() === t.email) &&
+                 i.Status !== 'Declined' && i.Status !== 'Expired';
+        })[0];
+        if (dup) return;
+        made.push(insert_('Invitations', { InviteID: id_('INV'), PackageID: pk.PackageID, ProjectID: projectId,
+          SupplierID: t.sup ? t.sup.SupplierID : '', SupplierEmail: t.email, SupplierName: t.name || '',
+          Brief: str_(d.brief, 4000), Attachments: att, Deadline: d.deadline, Status: 'Invited', SentAt: now_(),
+          ViewedAt: '', RespondedAt: '', DeclineReason: '' }));
+        if (pk.Status === 'Draft') update_('Packages', pk.PackageID, { Status: 'Quoting' });
+        newPk.push(pk);
+      });
+      if (!newPk.length) return;
+      var appUrl = props_().getProperty('APP_URL') || '#';
+      var link = t.sup ? appUrl : appUrl + (appUrl.indexOf('?') < 0 ? '?' : '&') + 'invite=' + encodeURIComponent(t.email);
+      var files = plans.concat(att);
+      mail_(t.email, 'Invitation to quote: ' + (pr.Branch || pr.Name), box_('You are invited to quote',
+        '<p>Hi ' + esc_(t.name || '') + ',</p><p>You are invited to submit a quotation for the following:</p>' +
+        table_([['Project', pr.Name + (pr.Branch ? ' – ' + pr.Branch : '')], ['Location', pr.Address],
+                ['Package(s) to quote', newPk.map(function (p) { return p.Trade + (p.Scope ? ' – ' + p.Scope : ''); }).join('\n')],
+                ['Brief', d.brief], ['Quote deadline', d.deadline]]) +
+        (files.length ? '<p><b>Plans & attachments:</b><br>' + files.map(function (f) {
+          return '<a href="' + f.url + '">' + esc_(f.name) + '</a>'; }).join('<br>') + '</p>' : '') +
+        (t.sup ? '<p>Log in to the supplier portal to view the details and submit your quotation.</p>'
+               : '<p><b>To submit your quotation, register as a supplier using this email address (' + esc_(t.email) +
+                 ')</b>. After registering you will see this invitation and all the plans in the portal.</p>') +
+        '<p style="margin:18px 0"><a href="' + link + '" style="background:#FF6B00;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;font-weight:600">' +
+        (t.sup ? 'Open supplier portal' : 'Register & view invitation') + '</a></p>'), projectId);
+    });
+    if (!made.length) throw new Error('No new invitations were sent (already invited for these packages).');
     return made;
   });
+}
+// After a supplier registers or logs in, attach invitations that were sent to their email.
+function linkInvites_(s) {
+  var email = String(s.Email).toLowerCase();
+  rows_('Invitations').forEach(function (i) {
+    if (!i.SupplierID && String(i.SupplierEmail).toLowerCase() === email) update_('Invitations', i.InviteID, { SupplierID: s.SupplierID });
+  });
+}
+function api_savePlans(token, projectId, plans) {
+  var me = auth_(token, ['admin', 'owner']);
+  needOwner_(me, projectId);
+  return update_('Projects', projectId, { Plans: (plans || []).map(function (f) {
+    return { id: str_(f.id, 100), name: str_(f.name, 200), mime: str_(f.mime, 100), url: str_(f.url, 500) }; }) });
 }
 function api_extendInvite(token, inviteId, deadline) {
   var me = auth_(token, ['admin', 'owner']);
   var inv = find_('Invitations', inviteId); needOwner_(me, inv.ProjectID);
-  var s = find_('Suppliers', inv.SupplierID), pk = pkg_(inv.PackageID);
+  var s = find_('Suppliers', inv.SupplierID) || { Email: inv.SupplierEmail }, pk = pkg_(inv.PackageID);
   var r = update_('Invitations', inviteId, { Deadline: deadline, Status: inv.Status === 'Expired' ? 'Invited' : inv.Status });
   mail_(s.Email, 'Quote deadline extended: ' + pk.Trade, box_('Deadline extended', '<p>The quote deadline for <b>' + esc_(pk.Trade) +
         '</b> was moved to <b>' + esc_(deadline) + '</b>.</p>' + btn_('Open supplier portal')), inviteId);
@@ -916,7 +981,7 @@ function dailyJobs() {
   var tmr = Utilities.formatDate(tomorrow, tz_(), 'yyyy-MM-dd');
   rows_('Invitations').forEach(function (i) {
     if (i.Status !== 'Invited' && i.Status !== 'Viewed') return;
-    var s = find_('Suppliers', i.SupplierID), pk = find_('Packages', i.PackageID);
+    var s = find_('Suppliers', i.SupplierID) || (i.SupplierEmail ? { Email: i.SupplierEmail } : null), pk = find_('Packages', i.PackageID);
     if (!s || !pk) return;
     if (i.Deadline && i.Deadline < today) update_('Invitations', i.InviteID, { Status: 'Expired' });
     else if (i.Deadline === tmr) mail_(s.Email, 'Reminder: quote due tomorrow – ' + pk.Trade, box_('Quote due tomorrow',
