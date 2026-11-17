@@ -81,7 +81,13 @@ function doPost(e) {
     var req = JSON.parse(e.postData.contents);
     var fn = String(req.fn || '');
     if (!/^api_/.test(fn) || typeof this[fn] !== 'function') throw new Error('Unknown action: ' + fn);
-    out = { ok: true, data: this[fn].apply(this, req.args || []) };
+    var data = this[fn].apply(this, req.args || []);
+    out = { ok: true, data: data };
+    // Send the refreshed data back in the same response (saves a second trip).
+    if (req.withData && fn !== 'api_data') {
+      var tok = data && data.token ? data.token : (req.args || [])[0];
+      try { out.fresh = api_data(tok); } catch (e2) { }
+    }
   } catch (err) {
     out = { ok: false, error: String(err && err.message || err) };
   }
@@ -112,32 +118,29 @@ function setup() {
 // ───────────────────────── Sheet helpers ─────────────────────────
 var _rows = {};
 function props_() { return PropertiesService.getScriptProperties(); }
+var _ss = null, _sheets = {};
 function ss_() {
+  if (_ss) return _ss;
   var id = props_().getProperty('SHEET_ID');
-  return id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+  _ss = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+  return _ss;
 }
 var _heads = {};
 function sh_(name) {
+  if (_sheets[name]) return _sheets[name];
   var ss = ss_(), s = ss.getSheetByName(name);
   if (!s) {
     s = ss.insertSheet(name);
     s.getRange(1, 1, 1, SCHEMA[name].length).setValues([SCHEMA[name]]).setFontWeight('bold').setBackground('#FFF0E3');
     s.setFrozenRows(1);
   }
+  _sheets[name] = s;
   return s;
 }
 // Real column order of the sheet (adds any new columns from SCHEMA at the end, so old sheets keep working).
 function head_(name) {
-  if (_heads[name]) return _heads[name];
-  var s = sh_(name), last = Math.max(1, s.getLastColumn());
-  var h = (s.getRange(1, 1, 1, last).getValues()[0] || []).map(String).filter(function (x) { return x; });
-  var missing = SCHEMA[name].filter(function (k) { return h.indexOf(k) < 0; });
-  if (missing.length) {
-    s.getRange(1, h.length + 1, 1, missing.length).setValues([missing]).setFontWeight('bold').setBackground('#FFF0E3');
-    h = h.concat(missing);
-  }
-  _heads[name] = h;
-  return h;
+  if (!_heads[name]) rows_(name);
+  return _heads[name];
 }
 function tz_() { return Session.getScriptTimeZone() || 'Asia/Manila'; }
 function now_() { return Utilities.formatDate(new Date(), tz_(), "yyyy-MM-dd HH:mm"); }
@@ -161,7 +164,14 @@ function ser_(k, v) {
 }
 function rows_(name) {
   if (_rows[name]) return _rows[name];
-  var head = head_(name), s = sh_(name), vals = s.getDataRange().getValues(); vals.shift();
+  var s = sh_(name), vals = s.getDataRange().getValues();
+  var head = (vals.shift() || []).map(String);
+  var missing = SCHEMA[name].filter(function (k) { return head.indexOf(k) < 0; });
+  if (missing.length) {   // new columns from SCHEMA are added at the end, so old sheets keep working
+    s.getRange(1, head.length + 1, 1, missing.length).setValues([missing]).setFontWeight('bold').setBackground('#FFF0E3');
+    head = head.concat(missing);
+  }
+  _heads[name] = head;
   var out = [];
   vals.forEach(function (r, i) {
     if (r[0] === '' || r[0] === null) return;

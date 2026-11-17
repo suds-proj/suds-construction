@@ -114,6 +114,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--orange-line);bor
 <body>
 <header>
   <div class="t" id="hdTitle">Suds Construction Monitoring</div>
+  <span id="hdSync" class="hidden small" style="opacity:.9">⟳ Updating…</span>
   <div class="who" id="hdWho"></div>
   <button id="hdOut" class="hidden" onclick="logout()">Log out</button>
 </header>
@@ -137,44 +138,82 @@ const fmtD = s => { if(!s) return '—'; const d=new Date(String(s).slice(0,10)+
 const daysBetween = (a,b) => Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/864e5);
 const store = { get(k){try{return localStorage.getItem(k)}catch(e){return null}}, set(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}} };
 
+/* Every save asks the server to send the refreshed data back in the same answer (one trip instead of two).
+   The last data is also kept on this device, so the app shows it instantly next time and updates in the background. */
+const NO_TOKEN = /^api_(adminLogin|ownerLogin|supplierLogin|supplierRegister|supplierResetPin)$/;
+S.ready = Promise.resolve(); S.fresh = null;
 function api(fn, ...args){
   const url = window.SUDS_API_URL;
   if(!/^https:\/\/script\.google\.com\/.+\/exec/.test(url||'')) return Promise.reject(new Error('App link not set up yet (SUDS_API_URL in index.html).'));
-  return fetch(url,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({fn,args})})
+  const withData = !/^api_(upload|data$|inviteViewed)/.test(fn);
+  return (NO_TOKEN.test(fn) ? Promise.resolve() : S.ready).then(()=>{
+    if(!NO_TOKEN.test(fn)) args[0] = S.token;
+    return fetch(url,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({fn,args,withData})});
+  })
     .then(r=>{ if(!r.ok) throw new Error('Network error ('+r.status+')'); return r.json(); })
-    .then(r=>{ if(!r.ok){ if(r.error==='SESSION_EXPIRED'){ sessionExpired(); } throw new Error(r.error==='SESSION_EXPIRED'?'Your session expired. Please log in again.':r.error); } return r.data; });
+    .then(r=>{ if(!r.ok){ if(r.error==='SESSION_EXPIRED'){ sessionExpired(); } throw new Error(r.error==='SESSION_EXPIRED'?'Your session expired. Please log in again.':r.error); }
+      if(r.fresh) S.fresh = r.fresh; return r.data; });
 }
 function busy(on,msg){ $('busy').classList.toggle('hidden',!on); $('busyMsg').textContent=msg||'Please wait…'; }
+function syncing(on){ $('hdSync').classList.toggle('hidden',!on); }
 let toastT; function toast(msg,err){ const t=$('toast'); t.textContent=msg; t.className=err?'err':''; clearTimeout(toastT); toastT=setTimeout(()=>t.className='hidden',err?6000:3000); }
 async function run(msg, fn){ busy(true,msg); try{ const r = await fn(); return r; } catch(e){ toast(e.message||String(e),true); if(e&&typeof e==='object') e._shown=true; throw e; } finally{ busy(false); } }
+
+const ownerKey = () => new URLSearchParams(location.search).get('k');
+const cacheName = () => ownerKey() ? 'cm_cache_'+ownerKey() : (S.me ? 'cm_cache_'+S.me.role+'_'+S.me.id : '');
+function cacheLoad(name){ try{ return name ? JSON.parse(localStorage.getItem(name)||'null') : null; }catch(e){ return null; } }
+function applyData(d){
+  S.d=d; S.me=d.me;
+  if(!S.adminToken) try{ const n=cacheName(); localStorage.setItem(n, JSON.stringify(d)); if(!ownerKey()) localStorage.setItem('cm_last', n); }catch(e){}
+}
+function takeFresh(){ const f=S.fresh; S.fresh=null; if(f){ applyData(f); return true; } return false; }
 
 /* ═════════════════ Start / login ═════════════════ */
 async function start(){
   const qs = new URLSearchParams(location.search);
   const key = qs.get('k');
   if(key){
-    try{ const r = await run('Opening your projects…',()=>api('api_ownerLogin',key)); return setSession(r); }
-    catch(e){ $('app').innerHTML = `<div class="login card"><h1>Access not set up</h1><p class="muted">${h(e.message)}</p></div>`; return; }
+    const cached = cacheLoad('cm_cache_'+key);
+    let done; S.ready = new Promise(r=>done=r);
+    if(cached){ S.d=cached; S.me=cached.me; render(); syncing(true); }
+    try{
+      const r = await (cached ? api('api_ownerLogin',key) : run('Opening your projects…',()=>api('api_ownerLogin',key)));
+      S.token=r.token; S.me=r.me; done();
+      if(!takeFresh()) applyData(await api('api_data', S.token));
+      render();
+    } catch(e){
+      done();
+      if(!cached) $('app').innerHTML = `<div class="login card"><h1>Access not set up</h1><p class="muted">${h(e.message)}</p></div>`;
+      else toast(e.message,true);
+    } finally { syncing(false); }
+    return;
   }
   const invEmail = qs.get('invite');
   const t = store.get('cm_token');
-  if(t){ S.token=t; try{ await reload(); return; }catch(e){} }
+  if(t){
+    S.token=t;
+    const cached = cacheLoad(store.get('cm_last'));
+    if(cached){ S.d=cached; S.me=cached.me; render(); syncing(true); }
+    try{ await reload(); return; }catch(e){} finally{ syncing(false); }
+  }
   if(invEmail){ S.tab.login='reg'; S.inviteEmail=invEmail; }
   renderLogin();
 }
 function setSession(r, keep){
   S.token=r.token; S.me=r.me;
   if(keep!==false && r.me.role!=='owner') store.set('cm_token',r.token);
-  S.view={name:'home'}; return reload();
+  S.view={name:'home'};
+  if(takeFresh()){ render(); return Promise.resolve(); }
+  return reload();
 }
-function sessionExpired(){ store.set('cm_token',null); S.token=null; setTimeout(()=>{ if(!new URLSearchParams(location.search).get('k')) renderLogin(); else location.reload(); },50); }
-function logout(){ store.set('cm_token',null); S.token=S.me=S.d=null; S.adminToken=null; $('asBanner').classList.add('hidden'); if(new URLSearchParams(location.search).get('k')) location.reload(); else renderLogin(); }
+function sessionExpired(){ store.set('cm_token',null); S.token=null; setTimeout(()=>{ if(!ownerKey()) renderLogin(); else location.reload(); },50); }
+function logout(){ store.set('cm_token',null); store.set('cm_last',null); S.token=S.me=S.d=null; S.adminToken=null; $('asBanner').classList.add('hidden'); if(ownerKey()) location.reload(); else renderLogin(); }
 async function reload(){
   const d = await api('api_data', S.token);
-  S.d=d; S.me=d.me; render();
+  applyData(d); render();
 }
-async function act(msg, fn){ // run an action then refresh
-  await run(msg, async()=>{ await fn(); const d=await api('api_data',S.token); S.d=d; S.me=d.me; });
+async function act(msg, fn){ // run an action; the refreshed data comes back with it
+  await run(msg, async()=>{ S.fresh=null; await fn(); if(!takeFresh()) applyData(await api('api_data',S.token)); });
   closeModal(); render();
 }
 
