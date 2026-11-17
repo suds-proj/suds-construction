@@ -73,6 +73,25 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--orange-line);bor
 .chk input{margin-top:3px}
 .f2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
 @media(max-width:640px){.f2{grid-template-columns:1fr}main{padding:12px}}
+/* Phones: tables become stacked cards (labels come from the table header) */
+@media(max-width:640px){
+  .tw:has(table.rt){border:0;overflow:visible;border-radius:0}
+  table.rt,table.rt tbody{display:block;background:transparent}
+  table.rt tr:first-child{display:none}
+  table.rt tr{display:block;background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:10px;padding:4px 14px}
+  table.rt tr.click:hover td{background:none}
+  table.rt td{display:flex;justify-content:flex-end;flex-wrap:wrap;align-items:flex-start;column-gap:8px;row-gap:4px;border-bottom:1px dashed var(--line);padding:8px 0;text-align:right;white-space:normal}
+  table.rt td:last-child{border-bottom:0}
+  table.rt td::before{content:attr(data-label);font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;text-align:left;flex-shrink:0;max-width:45%;padding-top:2px;margin-right:auto}
+  table.rt td:first-child{display:block;text-align:left;font-size:15px}
+  table.rt td:first-child::before,table.rt td[data-label=""]::before{display:none}
+  table.rt td[data-label=""]{justify-content:flex-end;flex-wrap:wrap;gap:6px}
+  table.rt td:empty{display:none}
+  table.rt .bar{min-width:120px}
+  .step{min-width:58px;font-size:10px}
+  header .t{font-size:15px}
+  .tabs{scrollbar-width:none}
+}
 .back{background:none;border:0;color:var(--orange-deep);cursor:pointer;padding:0;font-weight:600;margin-bottom:6px}
 .steps{display:flex;gap:0;margin:8px 0 16px;overflow-x:auto}
 .step{flex:1;min-width:90px;text-align:center;font-size:12px;color:var(--muted);position:relative;padding-top:18px}
@@ -411,6 +430,20 @@ function render(){
   else if(r==='owner') html = ownerHome();
   else html = supplierHome();
   $('app').innerHTML = html;
+  labelTables($('app'));
+  // on small screens, keep the selected tab and current step visible
+  ['.tabs .tab.on','.steps .step.cur'].forEach(sel=>{ const el=document.querySelector(sel); if(el&&el.parentElement.scrollWidth>el.parentElement.clientWidth)
+    el.parentElement.scrollLeft = el.offsetLeft - el.parentElement.offsetLeft - (el.parentElement.clientWidth-el.offsetWidth)/2; });
+}
+// Give each cell the name of its column, so phones can show tables as cards.
+function labelTables(root){
+  root.querySelectorAll('.tw table:not(.keep)').forEach(t=>{
+    const first = t.querySelector('tr'); if(!first) return;
+    const ths = [...first.children].filter(c=>c.tagName==='TH'); if(!ths.length) return;
+    t.classList.add('rt');
+    const labels = ths.map(th=>th.textContent.trim());
+    [...t.querySelectorAll('tr')].slice(1).forEach(tr=>{ let i=0; [...tr.children].forEach(td=>{ td.setAttribute('data-label', labels[i]||''); i += +(td.getAttribute('colspan')||1); }); });
+  });
 }
 
 /* ═════════════════ Supplier home ═════════════════ */
@@ -519,7 +552,7 @@ function quoteForm(inviteId){
   openModal(`${prev?'Revise':'Submit'} quotation – ${h(pk.Trade)}`, `
     ${prev&&prev.Status==='Negotiating'?`<div class="infobox"><b>Owner's request:</b> ${prev.CounterAmount?'counter-offer '+peso(prev.CounterAmount)+'. ':''}${nl(prev.OwnerRemarks)}</div>`:''}
     <label>Line items</label>
-    <div class="tw"><table class="lines" id="qLines"><tr><th>Description</th><th style="width:70px">Qty</th><th style="width:70px">Unit</th><th style="width:110px">Unit price</th><th class="num" style="width:110px">Amount</th><th></th></tr>
+    <div class="tw"><table class="lines keep" id="qLines"><tr><th>Description</th><th style="width:70px">Qty</th><th style="width:70px">Unit</th><th style="width:110px">Unit price</th><th class="num" style="width:110px">Amount</th><th></th></tr>
     ${lines.map(lineRow).join('')}</table></div>
     <div class="row" style="margin-top:8px;align-items:flex-start"><button class="btn sm sec" onclick="addLine()">+ Add line</button><span class="spacer"></span>
       <div class="right small" id="qSum"></div></div>
@@ -971,7 +1004,7 @@ function msEdit(pkgId){
   const row = m => `<tr data-id="${h(m.MilestoneID||'')}"><td><input type="text" class="mName" value="${h(m.Name)}"></td><td style="width:100px"><input type="number" class="mW" step="any" value="${h(m.Weight)}"></td><td><button class="btn sm sec" onclick="this.closest('tr').remove()">×</button></td></tr>`;
   window._msRow = row;
   openModal('Edit milestones', `<p class="small muted">Weights are relative (they don't need to add up to 100). Done milestones can't be removed.</p>
-    <div class="tw"><table class="lines" id="msT"><tr><th>Milestone</th><th>Weight</th><th></th></tr>${ms.map(row).join('')}</table></div>
+    <div class="tw"><table class="lines keep" id="msT"><tr><th>Milestone</th><th>Weight</th><th></th></tr>${ms.map(row).join('')}</table></div>
     <button class="btn sm sec" style="margin-top:8px" onclick="document.getElementById('msT').insertAdjacentHTML('beforeend',_msRow({Name:'',Weight:10}))">+ Add milestone</button>`,
     ()=>act('Saving…',()=>api('api_saveMilestones',S.token,pkgId,[...document.querySelectorAll('#msT tr')].slice(1).map(tr=>({MilestoneID:tr.dataset.id,Name:tr.querySelector('.mName').value,Weight:tr.querySelector('.mW').value})))));
 }
@@ -1111,7 +1144,7 @@ function openModal(title, body, onOk, okLabel, okClass, wide){
   const m = $('modal');
   m.innerHTML = `<div class="box ${wide?'wide':''}"><div class="hd">${title}<button class="x" onclick="closeModal()">×</button></div><div class="bd">${body}</div>
     <div class="ft">${onOk?`<button class="btn sec" onclick="closeModal()">Cancel</button><button class="btn ${okClass||''}" id="mOk">${h(okLabel||'Save')}</button>`:`<button class="btn" onclick="closeModal()">${h(okLabel||'Close')}</button>`}</div></div>`;
-  m.classList.remove('hidden');
+  m.classList.remove('hidden'); labelTables(m);
   if(onOk) $('mOk').onclick = async()=>{ $('mOk').disabled=true; try{ await onOk(); }catch(e){ if(e&&e.message&&!e._shown) toast(e.message,true); } finally{ if($('mOk')) $('mOk').disabled=false; } };
 }
 function closeModal(){ $('modal').classList.add('hidden'); $('modal').innerHTML=''; }
