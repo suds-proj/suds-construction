@@ -493,7 +493,7 @@ function editProfile(){
 function missingDocsOf(sp){ const docs = (sp&&sp.Docs)||[]; return (D().docTypes||[]).filter(d=>d.required && !docs.some(f=>f.type===d.name)).map(d=>d.name); }
 function uploadSupplierDocs(type){
   openModal(`Upload: ${h(type)}`, `<p class="muted small">PDF or photo. If the document has several pages, you can select several files.</p>${fileField('sdFiles','image/*,application/pdf',true)}`,
-    async()=>{ if(!$('sdFiles').files.length) return toast('Choose a file first.',true);
+    async()=>{ if(!pickedFiles('sdFiles').length) return toast('Choose a file first.',true);
       const files = (await uploadField('sdFiles',{type:'supplier'})).map(f=>Object.assign(f,{type}));
       await act('Saving…',()=>api('api_saveSupplierProfile',S.token,{Docs:(D().Profile.Docs||[]).concat(files)})); toast('Uploaded.'); });
 }
@@ -792,7 +792,7 @@ function plansCard(pr){
 }
 function uploadPlans(pid){
   openModal('Upload plans & documents', `<p class="small muted">PDF, images or CAD exports. You can select many files at once.</p>${fileField('plFiles','image/*,application/pdf,.dwg,.dxf,.zip,.xlsx,.docx',true)}`,
-    async()=>{ if(!$('plFiles').files.length) return toast('Choose files first.',true);
+    async()=>{ if(!pickedFiles('plFiles').length) return toast('Choose files first.',true);
       const f = await uploadField('plFiles',{type:'project',projectId:pid,kind:'Plans'});
       await act('Saving…',()=>api('api_savePlans',S.token,pid,(proj(pid).Plans||[]).concat(f))); toast('Plans uploaded.'); });
 }
@@ -941,7 +941,7 @@ function updateForm(pkgId){
     <label>Delays or issues (if any)</label><textarea id="upDelay" placeholder="Leave blank if none"></textarea>
     <label>Photos (at least 3) and short videos *</label>${fileField('upFiles','image/*,video/*',true)}
     <p class="small muted">Videos: keep them under 1 minute, or paste a link above.</p>`,
-    async()=>{ const f = $('upFiles').files; if([...f].filter(x=>/^image\//.test(x.type)).length<3) return toast('Please attach at least 3 photos.',true);
+    async()=>{ const f = pickedFiles('upFiles'); if(f.filter(x=>/^image\//.test(x.type)).length<3) return toast('Please attach at least 3 photos.',true);
       if(!$('upDone').value.trim()) return toast('Please describe the work done.',true);
       const files = await uploadField('upFiles',{type:'project',packageId:pkgId,kind:'Progress updates/'+$('upWeek').value});
       await act('Posting update…',()=>api('api_submitUpdate',S.token,{PackageID:pkgId,WeekOf:$('upWeek').value,Percent:$('upPct').value,WorkDone:$('upDone').value,NextPlan:$('upNext').value,
@@ -962,7 +962,7 @@ function milestonesTab(pk, st, own){
 function msDone(id){
   const m = byId('Milestones','MilestoneID',id);
   openModal('Mark milestone done', `<p><b>${h(m.Name)}</b></p><label>Photo(s) *</label>${fileField('msFiles','image/*,video/*',true)}`,
-    async()=>{ if(!$('msFiles').files.length) return toast('Please attach at least one photo.',true);
+    async()=>{ if(!pickedFiles('msFiles').length) return toast('Please attach at least one photo.',true);
       const f = await uploadField('msFiles',{type:'project',packageId:m.PackageID,kind:'Milestones'}); await act('Saving…',()=>api('api_tickMilestone',S.token,id,true,f)); });
 }
 function msTick(id,done){ act('Saving…',()=>api('api_tickMilestone',S.token,id,done,[])); }
@@ -1117,9 +1117,32 @@ function openModal(title, body, onOk, okLabel, okClass, wide){
 function closeModal(){ $('modal').classList.add('hidden'); $('modal').innerHTML=''; }
 
 /* ═════════════════ File uploads ═════════════════ */
+/* File pickers keep adding: choosing files again ADDS to the list (it no longer replaces it). Each file can be removed with ×. */
+const PICKED = {};
 function fileField(id, accept, multiple){
-  return `<input type="file" id="${id}" accept="${accept}" ${multiple?'multiple':''} onchange="document.getElementById('${id}L').textContent=[...this.files].map(f=>f.name+' ('+(f.size/1048576).toFixed(1)+' MB)').join(', ')"><div class="filelist" id="${id}L"></div>`;
+  PICKED[id] = [];
+  return `<div class="picker"><input type="file" id="${id}" accept="${accept}" ${multiple?'multiple':''} class="hidden" onchange="addPicked('${id}',this)">
+    <button type="button" class="btn sm sec" onclick="document.getElementById('${id}').click()">📎 ${multiple?'Add files':'Choose file'}</button>
+    <span class="small muted" id="${id}C"></span><div class="media" id="${id}L"></div></div>`;
 }
+function addPicked(id, input){
+  const list = PICKED[id] = PICKED[id] || [];
+  [...input.files].forEach(f=>{ if(!list.some(x=>x.name===f.name&&x.size===f.size&&x.lastModified===f.lastModified)) list.push(f); });
+  if(!input.multiple && list.length>1) list.splice(0, list.length-1);
+  input.value = ''; drawPicked(id);
+}
+function removePicked(id, i){ (PICKED[id]||[]).splice(i,1); drawPicked(id); }
+function drawPicked(id){
+  const list = PICKED[id]||[], box = $(id+'L'); if(!box) return;
+  box.querySelectorAll('img[data-u]').forEach(im=>URL.revokeObjectURL(im.src));
+  box.innerHTML = list.map((f,i)=>`<div style="position:relative;width:96px">
+      ${/^image\//.test(f.type)?`<a><img data-u="1" src="${URL.createObjectURL(f)}" alt=""></a>`:`<a${/^video\//.test(f.type)?' class="vid"':''}><div class="doc">${/^video\//.test(f.type)?'':'📄 '}${h(f.name)}</div></a>`}
+      <div class="small muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(f.size/1048576).toFixed(1)} MB</div>
+      <button type="button" title="Remove" onclick="removePicked('${id}',${i})" style="position:absolute;top:-6px;right:-6px;border:0;background:var(--red);color:#fff;border-radius:50%;width:22px;height:22px;cursor:pointer">×</button></div>`).join('');
+  const mbTot = list.reduce((a,f)=>a+f.size,0)/1048576;
+  $(id+'C').textContent = list.length ? `${list.length} file${list.length>1?'s':''} · ${mbTot.toFixed(1)} MB` : '';
+}
+const pickedFiles = id => PICKED[id] || [];
 const SMALL = 4*1024*1024, CHUNK = 8*1024*1024; // CHUNK must be a multiple of 256 KB
 const mb = n => (n/1048576).toFixed(n<10485760?1:0);
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
@@ -1132,7 +1155,7 @@ async function retry(fn, onRetry){
 }
 /* Uploads up to 3 files at the same time. The bar follows the MB actually sent, with time left. */
 async function uploadField(id, ctx){
-  const files = [...($(id)&&$(id).files||[])];
+  const files = pickedFiles(id).slice();
   if(!files.length) return [];
   const n = files.length;
   busyStart(`Uploading ${n} file${n>1?'s':''}…`, 'Preparing files…'); let ok=false;
